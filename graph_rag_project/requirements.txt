@@ -1,0 +1,13 @@
+python-dotenv
+qdrant-client
+neo4j
+groq
+langchain
+langchain-community
+langchain-qdrant
+langchain-ollama
+langchain-groq
+langchain-neo4j
+langgraph
+streamlit
+pypdf
