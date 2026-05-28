@@ -11,3 +11,6 @@ langchain-neo4j
 langgraph
 streamlit
 pypdf
+datasets
+networkx
+requests
