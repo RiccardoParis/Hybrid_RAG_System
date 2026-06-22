@@ -22,8 +22,8 @@ class AgentState(TypedDict):
     final_answer: str
 
 # Inizializziamo i retriever
-# Passiamo esplicitamente nomic-embed-text se impostato in ingest.py
-vector_retriever = VectorRetriever(collection_name="hybrid_rag", model_name="nomic-embed-text")
+# Passiamo esplicitamente BAAI/bge-base-en-v1.5 se impostato in ingest.py
+vector_retriever = VectorRetriever(collection_name="hybrid_rag", model_name="BAAI/bge-base-en-v1.5")
 graph_retriever = GraphRetriever()
 
 # Inizializzazione SQL DB
@@ -73,20 +73,17 @@ def route_query(question: str) -> dict:
     )
     prompt = ChatPromptTemplate.from_messages([
         ("system", """You are an intelligent routing agent for a multi-database Retrieval-Augmented Generation system.
-Analyze the user's question and determine the best database to query.
-
-RULES:
+Analyze the user's question and determine the best database to query based on the structural nature of the request, NOT the specific domain.
 
 Output ONLY a valid JSON object with exactly this structure:
 {{"vector": boolean, "graph": boolean, "sql": boolean}}
 
-Imposta "sql": true se la domanda richiede calcoli, conteggi, medie, filtri esatti su dati strutturati o aggregazioni (es. 'prezzo medio', 'quante auto', 'lista dei concessionari').
+STRUCTURAL ROUTING RULES:
+- "vector": true -> For conceptual understanding, reading comprehension, definitions, semantic searches, opinions, or extracting lists of concepts described in a text (e.g., "What are the three criteria mentioned", "Explain the concept of", "Summarize the document").
+- "sql": true -> For quantitative data analysis over tabular records. Use this ONLY for actual mathematical computations (AVG, SUM, MAX), exact filtering on structured tables, or counting rows in a database (e.g., "What is the average price", "Count the active users in region X"). Do NOT use SQL just because the user asks to enumerate concepts from a text.
+- "graph": true -> For topological queries, multi-hop relationships, and network structures (e.g., "Who is connected to", "What is the relationship between X and Y", "Find the path from A to B").
 
-Imposta "graph": true se la domanda riguarda le relazioni o le topologie tra entità (chi ha creato cosa, chi è connesso a chi).
-
-Imposta "vector": true se la domanda cerca opinioni, descrizioni discorsive, riassunti o recensioni.
-
-Puoi impostare più di un campo a true se la domanda è ibrida."""),
+You can set multiple fields to true if the question requires combining different structural operations."""),
         ("user", "{question}")
     ])
     chain = prompt | llm
@@ -215,7 +212,7 @@ Your task is to:
 
 Read the GraphRAG context. If it contains raw IDs (starting with "ns/"), use the Graph lookup JSON mapping to translate them into human-readable names. Do not ignore the GraphRAG context, just translate its entities.
 
-Merge the translated GraphRAG context with the VectorRAG context to answer the user's question.
+Merge the translated GraphRAG context, the VectorRAG context, and the SQL context to answer the user's question.
 
 Instructions:
 
@@ -225,7 +222,11 @@ If only one source provides useful content, use that.
 
 If the sources conflict, select the more specific or factual one.
 
-Output only one unified answer. Do not mention GraphRAG, VectorRAG, or IDs."""),
+Output only one unified, conversational answer.
+
+CRITICAL STYLE RULE: You MUST hide your internal RAG process from the user. NEVER use words like "context", "SQL context", "tuple", "VectorRAG", "GraphRAG", "pipeline", or "source". 
+Do NOT say things like "According to the SQL context..." or "The database provides a tuple...". 
+Do NOT explain that you are merging sources. Just state the synthesized facts directly and naturally (e.g., simply say "Nel database ci sono in totale 6 auto usate.")."""),
         ("user", """Domanda: {query}
         
 Contesto Vector Search:
@@ -285,7 +286,6 @@ def route_after_parse(state: AgentState):
     if decision.get("graph"):
         routes.append("graph_search")
     if decision.get("sql"):
-        # NOTA: Assicurati di aggiungere e collegare un nodo 'sql_search' al grafo
         routes.append("sql_search")
         
     if not routes:

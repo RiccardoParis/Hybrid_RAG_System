@@ -3,14 +3,14 @@ import json
 from config import QDRANT_URL, QDRANT_API_KEY, NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_ollama import OllamaEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_qdrant import QdrantVectorStore
 from neo4j import GraphDatabase
 
 def ingest_document_to_vector(file_path: str):
     """
     Carica un file (.txt o .pdf), lo splitta in chunk, ne calcola gli embeddings
-    con nomic-embed-text e lo salva in Qdrant (collection 'hybrid_rag').
+    con HuggingFaceEmbeddings e lo salva in Qdrant (collection 'hybrid_rag').
     """
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Il file '{file_path}' non esiste.")
@@ -32,8 +32,8 @@ def ingest_document_to_vector(file_path: str):
     
     api_key = QDRANT_API_KEY if QDRANT_API_KEY and QDRANT_API_KEY != "your_qdrant_api_key_here" else None
     
-    print(f"[{file_path}] Inizializzazione OllamaEmbeddings (nomic-embed-text)...")
-    embeddings = OllamaEmbeddings(model="nomic-embed-text")
+    print(f"[{file_path}] Inizializzazione HuggingFaceEmbeddings (BAAI/bge-base-en-v1.5)...")
+    embeddings = HuggingFaceEmbeddings(model_name="BAAI/bge-base-en-v1.5")
     
     print(f"[{file_path}] Inserimento di {len(chunks)} chunk in Qdrant (collection: 'hybrid_rag')...")
     QdrantVectorStore.from_documents(

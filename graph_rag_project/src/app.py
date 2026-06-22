@@ -81,6 +81,9 @@ if prompt := st.chat_input("Fai una domanda (es. 'Qual è lo stato di ns/server-
                 st.write("**Risultati Graph Search:**")
                 st.write(final_state.get("graph_result", "Nessun risultato."))
                 
+                st.write("**Risultati SQL Search:**")
+                st.write(final_state.get("sql_context", "Nessun risultato."))
+                
                 # Mostra i risultati del Lookup solo se ci sono stati ID rilevati
                 if final_state.get("ns_ids"):
                     st.write(f"**ID Trovati ({len(final_state['ns_ids'])}):** {final_state['ns_ids']}")

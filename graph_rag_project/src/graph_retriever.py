@@ -3,33 +3,12 @@ from langchain_groq import ChatGroq
 from langchain_core.prompts import PromptTemplate
 from config import NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, GROQ_API_KEY
 
-STATIC_SCHEMA = """
-Node properties:
-Person (id: STRING, title: STRING, center: STRING)
-Organization (id: STRING, title: STRING, center: STRING)
-CreativeWork (id: STRING, title: STRING, center: STRING)
-Event (id: STRING, title: STRING, center: STRING)
-Location (id: STRING, title: STRING, center: STRING)
-Product (id: STRING, title: STRING, center: STRING)
-Concept (id: STRING, title: STRING, center: STRING)
-
-Relationship properties:
-(nessuna)
-
-The relationships:
-(:CreativeWork|Product|Event|Concept)-[:CREATED_BY]->(:Person|Organization)
-(:Person|Organization|CreativeWork)-[:PART_OF]->(:Organization|Location|CreativeWork)
-(:Event|Organization|Person|CreativeWork)-[:LOCATED_IN]->(:Location)
-(:Person|Organization|CreativeWork)-[:INVOLVED_IN]->(:Event|CreativeWork|Organization)
-(:CreativeWork|Product)-[:RELEASED_IN]->(:Location|Event|Product)
-(:Person|Organization|CreativeWork|Event|Location|Product|Concept)-[:RELATED_TO]->(:Person|Organization|CreativeWork|Event|Location|Product|Concept)
-"""
-
 CYPHER_PROMPT = PromptTemplate(
     input_variables=["schema", "question"],
     template="""You are an expert Cypher query generator. Given a schema and a question, generate a valid Cypher query.
 Schema:
-""" + STATIC_SCHEMA + """
+{schema}
+
 Question: {question}
 
 Instructions:
@@ -46,14 +25,25 @@ RETURN n.title, type(r), m.center
 8. ALWAYS assign a variable to relationships if you intend to return them. NEVER write anonymous relationship filters like [:RELEASED_ON] if you use r in the RETURN clause. Always write -[r:RELEASED_ON]- or just -[r]-.
 9. If you use collect() to aggregate results from multiple MATCH clauses, ALWAYS use DISTINCT to prevent Cartesian products (e.g., collect(DISTINCT p.title)).
 10. Output ONLY the Cypher query. No explanations.
+11. CRITICAL SYNTAX RULE: NEVER use the anonymous variable-length wildcard '-[*]-'. If you don't know the exact relationship between two nodes, you MUST use 'MATCH (n)-[r]-(m)' to capture ANY single relationship, ensuring it is always bound to the variable 'r'.
+12. If you need to search across multiple hops, you MUST bind the path to a variable, e.g., 'MATCH p = (n)-[*1..3]-(m)', but avoid this unless strictly necessary.
 
 CYPHER SYNTAX RULES:
-1. NEVER apply string functions like toLower() directly to pattern expressions. toLower((a)-[:REL]->(b)) is INVALID syntax.
-2. NEVER introduce new node variables inside a WHERE clause or an OR condition.
-3. ALWAYS MATCH the complete path first, then apply functions to the specific node PROPERTIES.
+1. MANDATORY ENGLISH TRANSLATION: The database nodes are entirely in ENGLISH. If the user asks a question in Italian (or any other language), you MUST translate the keywords to English BEFORE putting them inside the CONTAINS function. (e.g., if the user asks for 'Torre dell'Arsenale', you MUST use CONTAINS 'tower' OR CONTAINS 'arsenal'. NEVER use CONTAINS 'torre' or CONTAINS 'arsenale').
+2. NEVER apply string functions like toLower() directly to pattern expressions. toLower((a)-[:REL]->(b)) is INVALID syntax.
+3. NEVER introduce new node variables inside a WHERE clause or an OR condition.
+4. ALWAYS MATCH the complete path first, then apply functions to the specific node PROPERTIES.
 Example of CORRECT syntax:
-MATCH (p:Person)-[:LOCATED_IN]->(l:Location)
+MATCH (p:Person)-[r:LOCATED_IN]->(l:Location)
 WHERE toLower(l.title) CONTAINS 'gallia'
+5. FLEXIBILITY & MULTI-HOP RULE (CRITICAL): DO NOT force node labels (like :Location or :CreativeWork) unless you are 100% sure. Use generic nodes (n) and (m) to avoid missing data due to slight schema misclassifications.
+6. If the user asks for relationships, connections, or structural links between two entities, NEVER use the broken syntax 'MATCH (n)-[*]->(m) RETURN type(r)'. You MUST use a variable-length path, assign the entire path to the variable 'p', and return 'p'.
+
+Example of PERFECT syntax for finding connections:
+MATCH p = shortestPath((n)-[*1..3]-(m))
+WHERE (toLower(n.title) CONTAINS 'keyword1' OR toLower(n.title) CONTAINS 'keyword2')
+  AND toLower(m.title) CONTAINS 'keyword3'
+RETURN p LIMIT 5
 
 EXAMPLES OF VALID CYPHER QUERIES:
 
@@ -65,6 +55,9 @@ Cypher: MATCH (e:Event)-[:LOCATED_IN]->(l:Location) WHERE toLower(e.title) CONTA
 
 Question: Trova tutte le connessioni di Raita Honjou
 Cypher: MATCH (p:Person)-[r]-(m) WHERE toLower(p.title) CONTAINS 'raita honjou' RETURN p.title, type(r), m.title
+
+Question: Individua le relazioni strutturali che legano la Torre dell'Arsenale al MacArthur Museum.
+Cypher: MATCH p = shortestPath((n)-[*1..3]-(m)) WHERE (toLower(n.title) CONTAINS 'tower' OR toLower(n.title) CONTAINS 'arsenal') AND toLower(m.title) CONTAINS 'macarthur' RETURN p LIMIT 5
 
 {schema}"""
 )
@@ -85,7 +78,7 @@ Answer:"""
 )
 
 class GraphRetriever:
-    def __init__(self, model_name: str = "llama-3.1-8b-instant"):
+    def __init__(self, model_name: str = "llama-3.3-70b-versatile"):
         # Inizializza la connessione al grafo Neo4j
         self.graph = Neo4jGraph(
             url=NEO4J_URI, 
@@ -93,8 +86,8 @@ class GraphRetriever:
             password=NEO4J_PASSWORD
         )
         
-        # Disabilita il refresh dinamico e svuota la cache di LangChain per iniettare STATIC_SCHEMA via prompt
-        self.graph.schema = ""
+        # Aggiorna lo schema leggendolo direttamente da Neo4j
+        self.graph.refresh_schema()
         
         # Inizializza il modello linguistico Groq per generare query Cypher
         self.llm = ChatGroq(
