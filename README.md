@@ -38,7 +38,7 @@ Il sistema utilizza i modelli di embedding di Hugging Face BAAI/bge-base-en-v1.5
 Bash
 pip install -r requirements.txt
 4. Configurazione Variabili d'Ambiente
-Crea un file .env nella root del progetto (dove si trova docker-compose.yml) e inserisci le seguenti configurazioni:
+Modifica il file .env nella root del progetto (dove si trova docker-compose.yml) e inserisci le seguenti configurazioni:
 
 Snippet di codice
 # Qdrant Configuration
