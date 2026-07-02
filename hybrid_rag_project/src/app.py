@@ -1,7 +1,7 @@
 import os
 import streamlit as st
 from router import app as langgraph_app
-from ingest import ingest_document_to_vector, ingest_graph_from_json
+from ingest import ingest_document_to_vector, ingest_graph_from_json, ingest_sql_from_json
 
 # Configurazione della pagina (opzionale ma raccomandata per Dashboard)
 st.set_page_config(page_title="Hybrid RAG Dashboard", page_icon="🤖", layout="centered")
@@ -9,14 +9,15 @@ st.set_page_config(page_title="Hybrid RAG Dashboard", page_icon="🤖", layout="
 # --- SIDEBAR: Upload File ---
 with st.sidebar:
     st.header("Gestione Dati")
-    st.write("Carica nuovi documenti o file JSON per popolare i database.")
+    st.write("Carica nuovi documenti per popolare i database.")
     
     vector_file = st.file_uploader("Documento Testo/PDF (Vector DB)", type=["txt", "pdf"])
     graph_file = st.file_uploader("Grafo Strutturato (JSON)", type=["json"])
+    # NUOVO: Uploader per i dati SQL
+    sql_file = st.file_uploader("Dati Tabellari (JSON/CSV per SQL DB)", type=["json", "csv"])
     
     if st.button("Elabora File"):
-        if vector_file or graph_file:
-            # Assicurati che la cartella temporanea esista
+        if vector_file or graph_file or sql_file:
             os.makedirs("temp_uploads", exist_ok=True)
             
             if vector_file:
@@ -42,6 +43,18 @@ with st.sidebar:
                         st.success(f"{graph_file.name} importato con successo (Graph DB)!")
                     except Exception as e:
                         st.error(f"Errore {graph_file.name}: {e}")
+        # NUOVO: Logica per il caricamento SQL
+            if sql_file:
+                temp_path = os.path.join("temp_uploads", sql_file.name)
+                with open(temp_path, "wb") as f:
+                    f.write(sql_file.getbuffer())
+                
+                with st.spinner(f"Ingestione dei dati tabellari da {sql_file.name}..."):
+                    try:
+                        ingest_sql_from_json(temp_path)
+                        st.success(f"{sql_file.name} inserito con successo (SQL DB)!")
+                    except Exception as e:
+                        st.error(f"Errore {sql_file.name}: {e}")
         else:
             st.warning("Per favore, seleziona almeno un file prima di cliccare su 'Elabora File'.")
 # -----------------------------
