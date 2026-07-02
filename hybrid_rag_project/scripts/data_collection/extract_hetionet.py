@@ -1,6 +1,16 @@
 import os
 import json
 import bz2
+import sys
+
+# Aggiunge la cartella 'src' al path (due livelli sopra)
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../src')))
+from config import GROQ_API_KEY
+
+# Imposta la base_dir alla root del progetto (tre livelli sopra)
+base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+texts_dir = os.path.join(base_dir, "data", "texts")
+graphs_dir = os.path.join(base_dir, "data", "graphs")
 
 def extract_neurology_subgraph():
     hetionet_file = "../hetionet/hetionet-v1.0.json.bz2"

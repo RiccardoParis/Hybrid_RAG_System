@@ -2,6 +2,16 @@ import os
 import requests
 import time
 import xml.etree.ElementTree as ET
+import sys
+
+# Aggiunge la cartella 'src' al path (due livelli sopra)
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../src')))
+from config import GROQ_API_KEY
+
+# Imposta la base_dir alla root del progetto (tre livelli sopra)
+base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+texts_dir = os.path.join(base_dir, "data", "texts")
+graphs_dir = os.path.join(base_dir, "data", "graphs")
 
 def fetch_pubmed_abstracts():
     # Creiamo la cartella di output per i file di testo
