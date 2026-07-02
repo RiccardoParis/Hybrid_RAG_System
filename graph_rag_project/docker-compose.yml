@@ -20,19 +20,19 @@ services:
     image: postgres:15
     container_name: hybrid_rag_postgres
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=Password
-      - POSTGRES_DB=used_cars_db
+      - POSTGRES_DB=medical_rag_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
   pgadmin:
-    image: dpage/pgadmin4
+    image: dpage/pgadmin4:8.5
     container_name: hybrid_rag_pgadmin
     ports:
-      - "5050:80" # Accessibile via browser su http://localhost:5050
+      - "5055:80"
     environment:
       - PGADMIN_DEFAULT_EMAIL=admin@admin.com
       - PGADMIN_DEFAULT_PASSWORD=Password
