@@ -32,8 +32,8 @@ def ingest_document_to_vector(file_path: str):
     
     api_key = QDRANT_API_KEY if QDRANT_API_KEY and QDRANT_API_KEY != "your_qdrant_api_key_here" else None
     
-    print(f"[{file_path}] Inizializzazione HuggingFaceEmbeddings (BAAI/bge-base-en-v1.5)...")
-    embeddings = HuggingFaceEmbeddings(model_name="BAAI/bge-base-en-v1.5")
+    print(f"[{file_path}] Inizializzazione HuggingFaceEmbeddings (intfloat/multilingual-e5-base)...")
+    embeddings = HuggingFaceEmbeddings(model_name="intfloat/multilingual-e5-base")
     
     print(f"[{file_path}] Inserimento di {len(chunks)} chunk in Qdrant (collection: 'hybrid_rag')...")
     QdrantVectorStore.from_documents(
@@ -42,7 +42,8 @@ def ingest_document_to_vector(file_path: str):
         url=QDRANT_URL,
         api_key=api_key,
         collection_name="hybrid_rag",
-        force_recreate=False  # Permette inserimenti multipli successivi
+        force_recreate=False,
+        timeout=120  # Permette inserimenti multipli successivi
     )
     print(f"[{file_path}] Ingestione su Qdrant completata con successo.")
 

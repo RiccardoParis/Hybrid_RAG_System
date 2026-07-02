@@ -4,7 +4,7 @@ from qdrant_client import QdrantClient
 from config import QDRANT_URL, QDRANT_API_KEY
 
 class VectorRetriever:
-    def __init__(self, collection_name: str = "hybrid_rag", model_name: str = "BAAI/bge-base-en-v1.5"):
+    def __init__(self, collection_name: str = "hybrid_rag", model_name: str = "intfloat/multilingual-e5-base"):
         self.embeddings = HuggingFaceEmbeddings(model_name=model_name)
         
         # Inizializza Qdrant Client

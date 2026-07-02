@@ -22,8 +22,8 @@ class AgentState(TypedDict):
     final_answer: str
 
 # Inizializziamo i retriever
-# Passiamo esplicitamente BAAI/bge-base-en-v1.5 se impostato in ingest.py
-vector_retriever = VectorRetriever(collection_name="hybrid_rag", model_name="BAAI/bge-base-en-v1.5")
+# Passiamo esplicitamente intfloat/multilingual-e5-base se impostato in ingest.py
+vector_retriever = VectorRetriever(collection_name="hybrid_rag", model_name="intfloat/multilingual-e5-base")
 graph_retriever = GraphRetriever()
 
 # Inizializzazione SQL DB
@@ -38,8 +38,29 @@ postgres_uri = os.getenv("POSTGRES_URI", "")
 if postgres_uri and "TUAPASSWORD" not in postgres_uri:
     db = SQLDatabase.from_uri(postgres_uri)
     llm_sql = ChatGroq(model="llama-3.1-8b-instant", temperature=0)
+    from langchain_core.prompts import PromptTemplate
+    custom_sql_template = PromptTemplate.from_template(
+"""Sei un estrattore di dati (Data Extractor) esperto in SQL (dialetto {dialect}).
+Il tuo UNICO obiettivo è scrivere la query SQL per estrarre le righe necessarie.
+
+REGOLE RIGIDE (PARADIGMA TAG):
+1. ESTRAZIONE GREZZA: Usa solo semplici query SELECT. Anche se l'utente chiede "quanti", "somma" o "totale", tu NON usare funzioni di aggregazione (SUM, COUNT, AVG). Devi estrarre le singole righe, sarà il sistema successivo a contarle o sommarle.
+2. CAMPI: Estrai sempre i campi descrittivi (es. nct_id, title, enrollment, sponsor.name).
+3. TESTO: Usa SEMPRE ILIKE '%Nome%' quando filtri per stringhe testuali.
+4. ID: Se l'utente fornisce un ID come 'NCT...', usa WHERE studies.nct_id = 'NCT...'.
+5. LIMITE: Limita sempre la query a un massimo di {top_k} risultati.
+
+OUTPUT:
+Restituisci ESCLUSIVAMENTE la query SQL valida. Nessuna spiegazione, nessuna introduzione, nessun markdown. Solo il codice.
+
+Tabelle a disposizione:
+{table_info}
+
+Domanda: {input}
+SQLQuery:"""
+)
     execute_query = QuerySQLDatabaseTool(db=db)
-    write_query = create_sql_query_chain(llm_sql, db)
+    write_query = create_sql_query_chain(llm_sql, db, prompt=custom_sql_template)
     
     def clean_sql_output(text: str) -> str:
         # Estrae dai blocchi markdown sql
@@ -109,10 +130,15 @@ def parse_query_node(state: AgentState):
 
 def vector_search_node(state: AgentState):
     """Esegue la ricerca sul vector store."""
-    query = state["query"]
-    print(f"[Router] Esecuzione Vector Search per: {query}")
+    original_query = state["query"]
+    
+    # FIX PER IL MODELLO E5: Aggiungiamo il prefisso obbligatorio per le domande
+    e5_query = f"query: {original_query}"
+    
+    print(f"[Router] Esecuzione Vector Search per: {e5_query}")
     try:
-        docs = vector_retriever.search(query)
+        # Passiamo la query formattata a Qdrant
+        docs = vector_retriever.search(e5_query)
         # Estraiamo il testo dai documenti per passarlo all'LLM
         results = [doc.page_content for doc in docs]
     except Exception as e:
@@ -198,7 +224,15 @@ def late_fusion_node(state: AgentState):
     )
     
     prompt = ChatPromptTemplate.from_messages([
-        ("system", """You are given independent context sources related to the user's question:
+        ("system", """Sei un assistente medico analitico. Riceverai dei frammenti di testo (da PubMed) e/o una lista di record grezzi estratti da un database relazionale (es. trial clinici).
+
+Se l'utente ti chiede un calcolo, un conteggio o una somma, DEVI farla tu stesso leggendo attentamente i record SQL forniti nel contesto.
+
+Spiega sempre il tuo ragionamento. Ad esempio: 'Ho trovato X studi. Lo studio A ha Y pazienti, lo studio B ha Z pazienti, per un totale di W pazienti.'
+
+Se le informazioni per rispondere non sono presenti in NESSUNO dei contesti forniti, dichiara esplicitamente che i dati a tua disposizione non contengono la risposta e FERMATI. Non inventare o usare conoscenze pregresse.
+
+You are given independent context sources related to the user's question:
 
 GraphRAG context: {graph_res}
 
