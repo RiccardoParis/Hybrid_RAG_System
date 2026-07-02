@@ -4,8 +4,9 @@ import glob
 import json
 import re
 
-# Gestione path per permettere l'importazione di config.py
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Aggiunge la cartella 'src' al path per permettere le importazioni
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
+
 from config import GROQ_API_KEY
 from langchain_groq import ChatGroq
 from langchain_core.prompts import PromptTemplate

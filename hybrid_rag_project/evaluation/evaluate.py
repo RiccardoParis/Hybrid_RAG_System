@@ -4,6 +4,11 @@ import os
 import re
 import time
 import random
+import sys
+
+# Aggiunge la cartella 'src' al path per permettere le importazioni
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
+
 from config import GROQ_API_KEY
 from langchain_groq import ChatGroq
 from langchain_core.prompts import PromptTemplate
