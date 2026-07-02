@@ -1,91 +1,60 @@
-# Hybrid Multi-Source RAG Agent 🧠🔗
+Markdown
+# Hybrid Multi-Source RAG System 🧠🧬
 
-Questo progetto implementa un'architettura **Retrieval-Augmented Generation (RAG) Ibrida e Multi-Sorgente**. Il sistema supera i limiti dei tradizionali RAG basati esclusivamente su vettori (VectorRAG), integrando in parallelo e dinamicamente l'accesso a tre diverse tipologie di database:
-1. **Vector DB (Qdrant):** Per la ricerca semantica su documenti testuali non strutturati (es. paper accademici, manuali in PDF/TXT).
-2. **Graph DB (Neo4j):** Per il ragionamento topologico e relazionale su entità fortemente connesse (Knowledge Graphs).
-3. **Relational DB (PostgreSQL):** Per calcoli deterministici, aggregazioni matematiche e dati strutturati tabellari (es. cataloghi, prezzi).
+An advanced Retrieval-Augmented Generation (RAG) architecture tailored for the medical domain. This system intelligently routes user queries across three distinct databases (Vector, Graph, and Relational) to synthesize highly accurate, hallucination-free answers using Large Language Models.
 
-Il cuore del sistema è un **Intelligent Router** basato su LangGraph e Groq (Llama-3.1-8b / 3.3-70b), capace di analizzare strutturalmente la domanda dell'utente, interrogare in parallelo i database necessari, risolvere eventuali ID grezzi (Graph Lookup) e fondere i contesti in una singola risposta naturale tramite una strategia di **Late Fusion**.
+## 🏗️ System Architecture
 
----
+The system utilizes an agentic workflow powered by **LangGraph** to process, route, and fuse information:
+1. **Intelligent Router:** Analyzes the structural intent of the query (semantic, topological, or quantitative) to select the appropriate data source.
+2. **Qdrant (Vector DB):** Handles semantic searches across medical abstracts and scientific literature using cross-lingual embeddings (`multilingual-e5-base`).
+3. **Neo4j (Knowledge Graph):** Manages multi-hop reasoning and ontological relationships (e.g., diseases, side effects, drugs) using Dynamic Schema-Augmented Cypher Generation.
+4. **PostgreSQL (Relational DB):** Processes quantitative queries and exact data filtering (e.g., clinical trial enrollments) via the Table-Augmented Generation (TAG) paradigm.
+5. **Late Fusion Node:** An LLM synthesizes the raw extracted data from all sources into a single, coherent natural language response.
 
-## 🛠 Prerequisiti
+## ⚙️ Prerequisites
 
-Per eseguire il progetto localmente, assicurati di avere installato:
-- **Python 3.10+**
-- **Docker e Docker Compose** (per sollevare i database)
-- Una chiave API valida per [Groq](https://console.groq.com/) (modelli Llama 3)
+- Python 3.10+
+- Docker & Docker Compose
+- Groq API Key (for LLM inference)
 
----
+## 🚀 Installation & Setup
 
-## 🚀 Installazione
-
-**1. Clona la repository**
+**1. Clone the repository and install dependencies:**
 ```bash
-git clone [https://github.com/TuoUsername/Hybrid_RAG_System.git](https://github.com/TuoUsername/Hybrid_RAG_System.git)
-cd Hybrid_RAG_System/graph_rag_project
-2. Crea e attiva un ambiente virtuale (consigliato)
-
-Bash
-python -m venv venv
-# Su Windows:
-venv\Scripts\activate
-# Su macOS/Linux:
-source venv/bin/activate
-3. Installa le dipendenze Python
-Il sistema utilizza i modelli di embedding di Hugging Face BAAI/bge-base-en-v1.5 per una vettorizzazione locale senza bisogno di server esterni (es. Ollama).
-
-Bash
+git clone [https://github.com/your-username/hybrid-rag-system.git](https://github.com/your-username/hybrid-rag-system.git)
+cd hybrid-rag-system
 pip install -r requirements.txt
-4. Configurazione Variabili d'Ambiente
-Modifica il file .env nella root del progetto (dove si trova docker-compose.yml) e inserisci le seguenti configurazioni:
+2. Configure Environment Variables:
+Create a .env file in the root directory (refer to .env.example):
 
 Snippet di codice
-# Qdrant Configuration
+GROQ_API_KEY=your_api_key_here
+POSTGRES_URI=postgresql://postgres:Password@127.0.0.1:5433/medical_rag_db
 QDRANT_URL=http://localhost:6333
-QDRANT_API_KEY=your_qdrant_api_key_here
-
-# Neo4j Configuration
 NEO4J_URI=bolt://localhost:7687
-NEO4J_USERNAME=neo4j
+NEO4J_USER=neo4j
 NEO4J_PASSWORD=Password
-
-# PostgreSQL Configuration
-POSTGRES_URI=postgresql://postgres:Password@localhost:5432/used_cars_db
-
-# Groq Configuration
-GROQ_API_KEY=inserisci_qui_la_tua_chiave_api_groq
-🐳 Avvio dell'Infrastruttura Database
-L'intera infrastruttura di persistenza è containerizzata. Per avviare contemporaneamente Qdrant, Neo4j, PostgreSQL e PgAdmin, apri il terminale nella root del progetto ed esegui:
+3. Launch the Databases (Docker):
 
 Bash
 docker compose up -d
-Accesso ai servizi in background:
-
-Neo4j Browser: http://localhost:7474 (Login: neo4j / Password)
-
-PgAdmin (per Postgres): http://localhost:5050 (Login: admin@admin.com / Password)
-
-Qdrant API: http://localhost:6333
-
-📥 Ingestione dei Dati
-Prima di interrogare il sistema, i database devono essere popolati. Puoi farlo in due modi:
-
-Opzione 1: Tramite Interfaccia Web (Dashboard)
-Avvia l'app Streamlit e utilizza la sidebar laterale per caricare file .pdf, .txt o .json. Il sistema li indirizzerà automaticamente al Vector DB o al Graph DB.
-
-Opzione 2: Tramite Script Bulk
-Inserisci i tuoi documenti nella cartella data/texts/ e i tuoi grafi JSON in data/graphs/. Quindi esegui:
+💉 Medical Data Ingestion
+The system comes with a massive ingestion pipeline to populate the three databases with medical literature, neurology graphs, and clinical trial records.
+To initialize and populate the databases:
 
 Bash
-python src/bulk_ingest.py
-Opzione 3: Dati SQL di Esempio
-Per popolare il database relazionale con il dataset di test sulle automobili, esegui:
+python src/medical_bulk_ingestion.py
+(Note: This process may take several minutes depending on your hardware).
 
-Bash
-python src/ingest_sql_sample.py
-🖥 Avvio dell'Applicazione
-Una volta che l'infrastruttura è avviata e i dati sono stati ingeriti, avvia l'interfaccia utente basata su Streamlit:
+💻 Usage
+Launch the interactive Streamlit dashboard:
 
 Bash
 streamlit run src/app.py
+🗺️ Roadmap & Future Work
+[ ] Implement Metadata-based Dynamic Routing.
+
+[ ] Integrate Reinforcement Learning from User Feedback (RLUF) to continuously optimize the router.
+
+[ ] Evaluate System Energy Footprint and optimization strategies.
