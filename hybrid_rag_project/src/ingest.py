@@ -1,5 +1,7 @@
 import os
 import json
+import pandas as pd
+from sqlalchemy import create_engine, text
 from config import QDRANT_URL, QDRANT_API_KEY, NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -105,6 +107,28 @@ def ingest_graph_from_json(json_file_path: str):
             
     driver.close()
     print(f"[{json_file_path}] Ingestione su Neo4j completata con successo.")
+
+def ingest_generic_sql(file_path: str, table_name: str):
+    """
+    Ingestione agnostica: carica CSV o JSON, crea o aggiorna la tabella automaticamente.
+    """
+    postgres_uri = os.getenv("POSTGRES_URI")
+    engine = create_engine(postgres_uri)
+    
+    # 1. Lettura dinamica del file
+    if file_path.endswith('.csv'):
+        df = pd.read_csv(file_path)
+    elif file_path.endswith('.json'):
+        df = pd.read_json(file_path)
+    else:
+        raise ValueError("Formato non supportato. Usa .csv o .json")
+
+    # 2. Ingestione dinamica su SQL
+    # 'if_exists="append"' permette di aggiungere record a tabelle esistenti
+    # 'index=False' non salva l'indice del dataframe come colonna
+    df.to_sql(table_name, engine, if_exists='append', index=False)
+    
+    print(f"[SQL Ingest] Tabella '{table_name}' aggiornata con {len(df)} righe.")
 
 if __name__ == "__main__":
     print("Modulo di ingestione dinamica. Utilizzare le funzioni:")

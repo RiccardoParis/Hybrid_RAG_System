@@ -14,8 +14,8 @@ REGOLE DI TRADUZIONE AGNOSTICHE E ROBUSTE:
 
 Uso dello Schema: Utilizza ESCLUSIVAMENTE le Node Labels, i Relationship Types e le Properties presenti nello schema. Non inventare o allucinare nomi di nodi. Se una label contiene spazi, usa i backtick (es. `Nome Label`).
 
-Ricerca Fuzzy (Semantic Gap): I database a grafo usano termini specifici, mentre gli utenti usano termini generici. Quando filtri per proprietà testuali (es. title, name, id), NON usare MAI la corrispondenza esatta (=). Usa SEMPRE la ricerca parziale case-insensitive espandendo i concetti con sinonimi o radici della parola.
-Esempio di pattern obbligatorio: WHERE toLower(n.nome_proprieta) CONTAINS 'radice1' OR toLower(n.nome_proprieta) CONTAINS 'sinonimo2'
+Ricerca Fuzzy (Defensive Multi-Property Search): I database a grafo usano termini specifici, mentre gli utenti usano termini generici. Quando filtri per proprietà testuali, NON usare MAI la corrispondenza esatta (=). Usa SEMPRE la ricerca parziale case-insensitive espandendo i concetti con sinonimi o radici della parola. Poiché non puoi sapere a priori in quale proprietà (es. id, title, name) è salvato il valore cercato dall'utente, devi SEMPRE applicare l'operatore CONTAINS in OR su TUTTE le principali proprietà testuali del nodo indicate nello schema.
+Esempio di pattern obbligatorio: WHERE toLower(n.title) CONTAINS 'valore' OR toLower(n.id) CONTAINS 'valore'
 
 Esplorazione Sicura: Se la domanda richiede di trovare elementi collegati, usa direzioni non orientate (es. MATCH (n)-[r]-(m)) per evitare di perdere risultati a causa della direzionalità degli archi.
 
@@ -27,7 +27,14 @@ EVITARE DUPLICATI (DISTINCT): Usa SEMPRE la keyword DISTINCT nella clausola di r
 OUTPUT PULITO: Non restituire mai l'intero nodo (es. vietato usare RETURN n). Restituisci solo la proprietà testuale rilevante.
 Esempio di ritorno obbligatorio: RETURN DISTINCT n.title oppure RETURN DISTINCT n.name.
 
-Restituisci SOLO ed ESCLUSIVAMENTE il codice Cypher crudo. Nessuna introduzione, nessun markdown (no ```cypher), nessuna spiegazione.
+DIVIETO CORRISPONDENZA INLINE: È SEVERAMENTE VIETATO filtrare i nodi inserendo le proprietà direttamente tra le parentesi graffe (es. SBAGLIATO: MATCH (n:Gene {{id: 'EDN3'}})). Devi SEMPRE usare la clausola WHERE con toLower(n.nome_proprieta) CONTAINS 'valore'.
+
+ESTRAZIONE RELAZIONI (TRIPLE SEMANTICHE): Se la domanda dell'utente chiede esplicitamente di trovare le "relazioni" o i "collegamenti" tra nodi, non usare la ricerca a lunghezza variabile -[*]-. Mappa sempre l'arco con una variabile (es. -[r]-) e restituisci la tripla completa usando ESATTAMENTE questa sintassi di ritorno: RETURN DISTINCT n.title AS Partenza, type(r) AS Relazione, m.title AS Arrivo.
+
+VINCOLI DI OUTPUT ASSOLUTI:
+ZERO TESTO DISCORSIVO: Restituisci ESCLUSIVAMENTE la query Cypher nuda e cruda. Non aggiungere saluti, spiegazioni, commenti o testo come 'Ecco la query' o 'Oppure potresti usare'.
+SINGOLA QUERY: Genera esattamente UNA (1) sola query Cypher valida che sia la migliore interpretazione della domanda. NON proporre varianti o opzioni alternative.
+NESSUN MARKDOWN: Non racchiudere la query in blocchi di codice (es. non usare ```cypher ... ```). La risposta deve iniziare direttamente con MATCH o CALL.
 
 Domanda dell'utente: {question}
 Query Cypher:

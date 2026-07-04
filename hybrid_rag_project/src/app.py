@@ -1,7 +1,7 @@
 import os
 import streamlit as st
 from router import app as langgraph_app
-from ingest import ingest_document_to_vector, ingest_graph_from_json, ingest_sql_from_json
+from ingest import ingest_document_to_vector, ingest_graph_from_json, ingest_generic_sql
 
 # Configurazione della pagina (opzionale ma raccomandata per Dashboard)
 st.set_page_config(page_title="Hybrid RAG Dashboard", page_icon="🤖", layout="centered")
@@ -15,6 +15,7 @@ with st.sidebar:
     graph_file = st.file_uploader("Grafo Strutturato (JSON)", type=["json"])
     # NUOVO: Uploader per i dati SQL
     sql_file = st.file_uploader("Dati Tabellari (JSON/CSV per SQL DB)", type=["json", "csv"])
+    table_name = st.text_input("Nome tabella SQL:", "nuova_tabella")
     
     if st.button("Elabora File"):
         if vector_file or graph_file or sql_file:
@@ -51,7 +52,7 @@ with st.sidebar:
                 
                 with st.spinner(f"Ingestione dei dati tabellari da {sql_file.name}..."):
                     try:
-                        ingest_sql_from_json(temp_path)
+                        ingest_generic_sql(temp_path,table_name)
                         st.success(f"{sql_file.name} inserito con successo (SQL DB)!")
                     except Exception as e:
                         st.error(f"Errore {sql_file.name}: {e}")
