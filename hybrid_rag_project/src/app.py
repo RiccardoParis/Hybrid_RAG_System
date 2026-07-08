@@ -2,6 +2,7 @@ import os
 import streamlit as st
 from router import app as langgraph_app
 from ingest import ingest_document_to_vector, ingest_graph_from_json, ingest_generic_sql
+from rl_logger import update_reward, update_log_final_metrics
 
 # Configurazione della pagina (opzionale ma raccomandata per Dashboard)
 st.set_page_config(page_title="Hybrid RAG Dashboard", page_icon="🤖", layout="centered")
@@ -120,6 +121,30 @@ if prompt := st.chat_input("Fai una domanda (es. 'Qual è lo stato di ns/server-
             final_answer = final_state["final_answer"]
             st.markdown(final_answer)
             st.session_state.messages.append({"role": "assistant", "content": final_answer})
+            
+            # --- SISTEMA DI FEEDBACK RL ---
+            if "log_id" in final_state:
+                log_id = final_state["log_id"]
+                
+                # Salvataggio immediato della risposta generata dal grafo a DB
+                real_tokens = final_state.get("total_tokens", 0)
+                update_log_final_metrics(log_id, final_answer, real_tokens)
+                
+                st.caption(f"⚡ Energy Footprint: {real_tokens} token consumati")
+                
+                # Callback per l'aggiornamento asincrono del feedback utente
+                def handle_feedback(val):
+                    update_reward(log_id, val)
+                    st.toast("Feedback registrato! Grazie per aver contribuito all'addestramento.", icon="✅")
+                
+                st.write("---")
+                st.write("*Valuta questa risposta per migliorare il routing del sistema:*")
+                col1, col2, _ = st.columns([1, 1, 8])
+                with col1:
+                    st.button("👍 Utile", on_click=handle_feedback, args=(1,), key=f"up_{log_id}")
+                with col2:
+                    st.button("👎 Non Utile", on_click=handle_feedback, args=(0,), key=f"down_{log_id}")
+                    
         elif final_state:
             fallback = "Nessuna risposta finale generata dal sistema."
             st.markdown(fallback)

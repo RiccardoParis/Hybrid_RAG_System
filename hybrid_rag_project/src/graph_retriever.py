@@ -31,7 +31,12 @@ DIVIETO CORRISPONDENZA INLINE: È SEVERAMENTE VIETATO filtrare i nodi inserendo 
 
 ESTRAZIONE RELAZIONI (TRIPLE SEMANTICHE): Se la domanda dell'utente chiede esplicitamente di trovare le "relazioni" o i "collegamenti" tra nodi, non usare la ricerca a lunghezza variabile -[*]-. Mappa sempre l'arco con una variabile (es. -[r]-) e restituisci la tripla completa usando ESATTAMENTE questa sintassi di ritorno: RETURN DISTINCT n.title AS Partenza, type(r) AS Relazione, m.title AS Arrivo.
 
+SINTASSI DELLE LABEL: NON usare MAI il carattere pipe (|) all'interno delle dichiarazioni dei nodi (es. VIETATO FARE (n:Disease|Gene)). Specifica un singolo nodo di partenza con una singola label, oppure usa un nodo generico (n) e applica i filtri nella clausola WHERE con la funzione labels(n).
+
+DIVIETO TYPE() SUI NODI: In Cypher, non usare MAI la funzione type() su una variabile che rappresenta un nodo (es. type(n) produrrà un errore fatale). Se hai bisogno di restituire il tipo/categoria di un nodo, DEVI usare la funzione labels() (es. labels(n)). Usa type() ESCLUSIVAMENTE per le relazioni (es. type(r)).
+
 VINCOLI DI OUTPUT ASSOLUTI:
+OUTPUT FORMAT: Devi restituire ESCLUSIVAMENTE il codice Cypher crudo. È severamente vietato aggiungere spiegazioni, premesse, pensieri o testo discorsivo prima o dopo la query. Restituisci solo ed esclusivamente le righe di codice Cypher.
 ZERO TESTO DISCORSIVO: Restituisci ESCLUSIVAMENTE la query Cypher nuda e cruda. Non aggiungere saluti, spiegazioni, commenti o testo come 'Ecco la query' o 'Oppure potresti usare'.
 SINGOLA QUERY: Genera esattamente UNA (1) sola query Cypher valida che sia la migliore interpretazione della domanda. NON proporre varianti o opzioni alternative.
 NESSUN MARKDOWN: Non racchiudere la query in blocchi di codice (es. non usare ```cypher ... ```). La risposta deve iniziare direttamente con MATCH o CALL.

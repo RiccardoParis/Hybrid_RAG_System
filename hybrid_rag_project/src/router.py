@@ -1,32 +1,38 @@
 import re
+import json
 from typing import TypedDict, List, Any
 from langgraph.graph import StateGraph, START, END
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from config import GROQ_API_KEY
 
-# Importiamo i retriever. 
-# Nota: L'inizializzazione effettiva richiede DB/Ollama attivi.
+# Import dei retriever e moduli di sistema
 from vector_retriever import VectorRetriever
 from graph_retriever import GraphRetriever
+from rl_router import RLBanditRouter
+from schema_extractor import get_compact_schemas, get_detailed_schemas
+from rl_logger import log_interaction
 
-# Definizione dello stato
+# 1. Definizione dello stato aggiornata
 class AgentState(TypedDict):
     query: str
-    routing_decision: dict
+    chosen_arm: str
+    log_id: int
+    routing_decision: List[str]
     ns_ids: List[str]
     vector_results: Any
     graph_result: Any
     lookup_results: dict
     sql_context: str
     final_answer: str
+    total_tokens: int
 
-# Inizializziamo i retriever
-# Passiamo esplicitamente intfloat/multilingual-e5-base se impostato in ingest.py
+# 2. Inizializzazioni
 vector_retriever = VectorRetriever(collection_name="hybrid_rag", model_name="intfloat/multilingual-e5-base")
 graph_retriever = GraphRetriever()
+bandit_router = RLBanditRouter()
 
-# Inizializzazione SQL DB
+# Inizializzazione SQL DB (invariata rispetto al tuo codice originale)
 import os
 from dotenv import load_dotenv
 from langchain_community.utilities import SQLDatabase
@@ -63,20 +69,11 @@ SQLQuery:"""
     write_query = create_sql_query_chain(llm_sql, db, prompt=custom_sql_template)
     
     def clean_sql_output(text: str) -> str:
-        # Estrae dai blocchi markdown sql
         match = re.search(r"```sql(.*?)```", text, re.DOTALL | re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
-        
-        # Estrae da blocchi markdown generici
+        if match: return match.group(1).strip()
         match = re.search(r"```(.*?)```", text, re.DOTALL)
-        if match:
-            return match.group(1).strip()
-            
-        # Fallback su SQLQuery:
-        if "SQLQuery:" in text:
-            return text.split("SQLQuery:")[1].strip()
-            
+        if match: return match.group(1).strip()
+        if "SQLQuery:" in text: return text.split("SQLQuery:")[1].strip()
         return text.strip()
         
     sql_chain = write_query | clean_sql_output | execute_query
@@ -85,48 +82,75 @@ else:
 
 import json
 
-def route_query(question: str) -> dict:
-    """Classifica la domanda e decide quale database interrogare."""
-    llm = ChatGroq(
-        temperature=0, 
-        groq_api_key=GROQ_API_KEY, 
-        model_name="llama-3.1-8b-instant"
-    )
+# 3. Risoluzione Multi-Source usando gli Schemi Dettagliati
+def resolve_multi_source(query: str, schemas: str) -> List[str]:
+    llm = ChatGroq(temperature=0, groq_api_key=GROQ_API_KEY, model_name="llama-3.1-8b-instant")
     prompt = ChatPromptTemplate.from_messages([
-        ("system", """You are an intelligent routing agent for a multi-database Retrieval-Augmented Generation system.
-Analyze the user's question and determine the best database to query based on the structural nature of the request, NOT the specific domain.
-
-Output ONLY a valid JSON object with exactly this structure:
-{{"vector": boolean, "graph": boolean, "sql": boolean}}
-
-STRUCTURAL ROUTING RULES:
-- "vector": true -> For conceptual understanding, reading comprehension, definitions, semantic searches, opinions, or extracting lists of concepts described in a text (e.g., "What are the three criteria mentioned", "Explain the concept of", "Summarize the document").
-- "sql": true -> For quantitative data analysis over tabular records. Use this ONLY for actual mathematical computations (AVG, SUM, MAX), exact filtering on structured tables, or counting rows in a database (e.g., "What is the average price", "Count the active users in region X"). Do NOT use SQL just because the user asks to enumerate concepts from a text.
-- "graph": true -> For topological queries, multi-hop relationships, and network structures (e.g., "Who is connected to", "What is the relationship between X and Y", "Find the path from A to B").
-
-You can set multiple fields to true if the question requires combining different structural operations."""),
-        ("user", "{question}")
+        ("system", """Analizza la query dell'utente e gli schemi forniti. Devi decidere quali database interrogare. Restituisci SOLO un array JSON contenente una o più delle seguenti stringhe: ["vector", "graph", "sql"]. Non aggiungere altro.
+Schemi:
+{schemas}"""),
+        ("user", "{query}")
     ])
-    chain = prompt | llm
     try:
-        response = chain.invoke({"question": question})
-        content = response.content.strip()
-        match = re.search(r'\{.*\}', content, re.DOTALL)
+        res = (prompt | llm).invoke({"schemas": schemas, "query": query})
+        tokens = res.response_metadata.get('token_usage', {}).get('total_tokens', 0)
+        print(f"[Router - DEBUG] Token spesi per resolve_multi_source: {tokens}")
+        content = res.content.strip()
+        
+        match = re.search(r'\[.*\]', content, re.DOTALL)
         if match:
-            decision = json.loads(match.group(0))
-        else:
-            decision = json.loads(content)
-        return decision
+            try:
+                return json.loads(match.group(0))
+            except json.JSONDecodeError:
+                pass
+                
+        # Fallback manuale basato su substring se il JSON fallisce o manca
+        fallback_routes = []
+        content_lower = content.lower()
+        for db_name in ["vector", "graph", "sql"]:
+            if db_name in content_lower:
+                fallback_routes.append(db_name)
+                
+        return fallback_routes if fallback_routes else ["vector", "graph"]
+        
     except Exception as e:
-        print(f"[Router] Errore nell'LLM Router ({e}). Fallback su VECTOR e GRAPH.")
-        return {"vector": True, "graph": True, "sql": False}
+        print(f"[Router] Errore in resolve_multi_source: {e}")
+        return ["vector", "graph"]
 
+# 4. Il Nodo Decisionale (Cuore del RL)
 def parse_query_node(state: AgentState):
-    """Nodo pass-through per analizzare e instradare la query."""
     query = state["query"]
-    decision = route_query(query)
-    print(f"[Router] Decisione di instradamento: {decision}")
-    return {"routing_decision": decision}
+    
+    # Estrazione schemi compatti dalla cache
+    compact_schemas = get_compact_schemas()
+    
+    # Scelta del braccio tramite DistilBERT
+    action_name, is_expl = bandit_router.choose_arm(
+        query, epsilon=0.1, 
+        vector_meta=compact_schemas["vector"], 
+        graph_meta=compact_schemas["graph"], 
+        sql_meta=compact_schemas["sql"]
+    )
+    
+    print(f"[Router] Braccio scelto: {action_name} (Exploration: {is_expl})")
+    
+    # Registrazione su PostgreSQL con token_cost iniziale a 0
+    log_id = log_interaction(query, action_name, token_cost=0)
+    
+    routes = []
+    if action_name == "multi":
+        detailed_schemas = get_detailed_schemas()
+        schemas_str = f"Vector: {detailed_schemas['vector']}\nGraph: {detailed_schemas['graph']}\nSQL: {detailed_schemas['sql']}"
+        multi_decision = resolve_multi_source(query, schemas_str)
+        for db_name in ["vector", "graph", "sql"]:
+            if db_name in multi_decision: routes.append(f"{db_name}_search")
+        if not routes: routes.append("vector_search")
+    elif action_name == "no_retrieval":
+        routes = ["direct_answer"]
+    else:
+        routes = [f"{action_name}_search"]
+        
+    return {"chosen_arm": action_name, "log_id": log_id, "routing_decision": routes, "total_tokens": 0}
 
 def vector_search_node(state: AgentState):
     """Esegue la ricerca sul vector store."""
@@ -294,7 +318,36 @@ Contesto SQL:
         "sql_res": str(sql_res)
     })
     
-    return {"final_answer": response.content}
+    tokens = response.response_metadata.get('token_usage', {}).get('total_tokens', 0)
+    new_total = state.get("total_tokens", 0) + tokens
+    
+    return {"final_answer": response.content, "total_tokens": new_total}
+
+def direct_answer_node(state: AgentState):
+    """Nodo per rispondere direttamente senza RAG (selezionato dal RL Router quando non serve interrogare DB)."""
+    print("[Router] Esecuzione Direct Answer Node (No Retrieval)")
+    query = state.get("query", "")
+    
+    llm = ChatGroq(
+        temperature=0, 
+        groq_api_key=GROQ_API_KEY, 
+        model_name="llama-3.1-8b-instant"
+    )
+    
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "Sei un utile assistente. Rispondi alla domanda dell'utente nel modo più diretto e conciso possibile."),
+        ("user", "{query}")
+    ])
+    
+    chain = prompt | llm
+    try:
+        response = chain.invoke({"query": query})
+        tokens = response.response_metadata.get('token_usage', {}).get('total_tokens', 0)
+        new_total = state.get("total_tokens", 0) + tokens
+        return {"final_answer": response.content, "total_tokens": new_total}
+    except Exception as e:
+        print(f"[Router] Errore Direct Answer: {e}")
+        return {"final_answer": "Si è verificato un errore."}
 
 # 1. Inizializza il StateGraph
 workflow = StateGraph(AgentState)
@@ -306,31 +359,20 @@ workflow.add_node("graph_search", graph_search_node)
 workflow.add_node("sql_search", sql_search_node)
 workflow.add_node("lookup", lookup_node)
 workflow.add_node("late_fusion", late_fusion_node)
+workflow.add_node("direct_answer", direct_answer_node)
 
 # 3. Definisce le connessioni base
 workflow.add_edge(START, "parse_query")
 
-# Instradamento dinamico basato sul Router (JSON)
+# 5. L'Edge Condizionale Semplificato
 def route_after_parse(state: AgentState):
-    decision = state.get("routing_decision", {"vector": True, "graph": True, "sql": False})
-    routes = []
-    
-    if decision.get("vector"):
-        routes.append("vector_search")
-    if decision.get("graph"):
-        routes.append("graph_search")
-    if decision.get("sql"):
-        routes.append("sql_search")
-        
-    if not routes:
-        routes.append("vector_search")
-        
-    return routes
+    # Il nodo precedente ha già preso tutte le decisioni!
+    return state["routing_decision"]
 
 workflow.add_conditional_edges(
     "parse_query",
     route_after_parse,
-    ["vector_search", "graph_search", "sql_search"]
+    ["vector_search", "graph_search", "sql_search", "direct_answer"]
 )
 
 # vector_search e sql_search vanno dritti a late_fusion
@@ -350,8 +392,9 @@ workflow.add_conditional_edges(
 # Se lookup viene eseguito, confluisce in late_fusion
 workflow.add_edge("lookup", "late_fusion")
 
-# Il nodo late_fusion termina l'esecuzione
+# I nodi di generazione terminano l'esecuzione
 workflow.add_edge("late_fusion", END)
+workflow.add_edge("direct_answer", END)
 
 # 7. Compila il grafo in un'applicazione eseguibile
 app = workflow.compile()
