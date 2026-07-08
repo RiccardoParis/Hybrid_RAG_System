@@ -6,12 +6,11 @@ An advanced Retrieval-Augmented Generation (RAG) architecture tailored for the m
 ## 🏗️ System Architecture
 
 The system utilizes an agentic workflow powered by **LangGraph** to process, route, and fuse information:
-1. **Intelligent Router:** Analyzes the structural intent of the query (semantic, topological, or quantitative) to select the appropriate data source.
+1. **Neural Router (DistilBERT):** Replaces rigid rules with an intent-recognition classification head. Trained via Curriculum Learning (SFT + RL) to map the semantic intent to the appropriate database using Compact Schemas.
 2. **Qdrant (Vector DB):** Handles semantic searches across medical abstracts and scientific literature using cross-lingual embeddings (`multilingual-e5-base`).
 3. **Neo4j (Knowledge Graph):** Manages multi-hop reasoning and ontological relationships (e.g., diseases, side effects, drugs) using Dynamic Schema-Augmented Cypher Generation.
-4. **PostgreSQL (Relational DB):** Processes quantitative queries and exact data filtering (e.g., clinical trial enrollments) via the Table-Augmented Generation (TAG) paradigm.
-5. **Late Fusion Node:** An LLM synthesizes the raw extracted data from all sources into a single, coherent natural language response.
-
+4. **PostgreSQL (Relational DB):** Processes quantitative queries and exact data filtering (e.g., clinical trial enrollments) via the Table-Augmented Generation (TAG) paradigm. Tracks RL logs and Energy Footprint.
+5. **Late Fusion Node:** An LLM (Llama-3) synthesizes the raw extracted data from all sources into a single, coherent natural language response.
 ## ⚙️ Prerequisites
 
 - Python 3.10+
@@ -27,7 +26,7 @@ git clone [https://github.com/your-username/hybrid-rag-system.git](https://githu
 cd hybrid-rag-system
 pip install -r requirements.txt
 2. Configure Environment Variables:
-Create a .env file in the root directory (refer to .env.example):
+Modify the .env file in the root directory (refer to .env.example):
 
 Snippet di codice
 GROQ_API_KEY=your_api_key_here
@@ -40,6 +39,7 @@ NEO4J_PASSWORD=Password
 
 Bash
 docker compose up -d
+
 💉 Medical Data Ingestion
 The system comes with a massive ingestion pipeline to populate the three databases with medical literature, neurology graphs, and clinical trial records.
 To initialize and populate the databases:
@@ -48,17 +48,36 @@ Bash
 python src/medical_bulk_ingestion.py
 (Note: This process may take several minutes depending on your hardware).
 
+🧠 Neural Router Training Pipeline
+The router learns through Curriculum Learning. To initialize the brain of the system:
+
+Adversarial Warmup: Generate a synthetic, highly deceptive dataset.
+
+Bash
+python src/auto_warmup.py
+Supervised Fine-Tuning (SFT): Teach the model semantic accuracy.
+
+Bash
+python src/sft_trainer.py
+Reinforcement Learning (RLUF): Optimize live weights based on User Feedback and real token costs (Energy Footprint).
+
+Bash
+python src/rl_trainer.py
+
 💻 Usage
 Launch the interactive Streamlit dashboard:
 
 Bash
 streamlit run src/app.py
+
 🗺️ Roadmap & Future Work
-[ ] Implement Metadata-based Dynamic Routing.
+[x] Implement Metadata-based Dynamic Routing.
 
-[ ] Integrate Reinforcement Learning from User Feedback (RLUF) to continuously optimize the router.
+[x] Integrate Reinforcement Learning from User Feedback (RLUF).
 
-[ ] Evaluate System Energy Footprint and optimization strategies.
+[x] Evaluate System Energy Footprint and token optimization.
+
+[ ] Evaluate system on OTT-QA Benchmark using LLM-as-a-Judge (Relevance, Faithfulness, Fluency).
 ```
 
 ### Architettura di Sistema
