@@ -21,66 +21,7 @@ The system utilizes an agentic workflow powered by **LangGraph** to process, rou
 ## 🚀 Installation & Setup
 
 **1. Clone the repository and install dependencies:**
-graph TD
-    %% Definizioni Stili
-    classDef user fill:#e1bee7,stroke:#8e24aa,stroke-width:2px,color:#000
-    classDef orchestrator fill:#ffecb3,stroke:#fbc02d,stroke-width:2px,color:#000
-    classDef router fill:#ffe0b2,stroke:#f57c00,stroke-width:2px,color:#000
-    classDef db fill:#b3e5fc,stroke:#0288d1,stroke-width:2px,color:#000
-    classDef llm fill:#c8e6c9,stroke:#388e3c,stroke-width:2px,color:#000
-    classDef process fill:#f5f5f5,stroke:#9e9e9e,stroke-width:1px,color:#000
 
-    %% Nodi Principali
-    User((Utente / Streamlit UI)):::user
-    ParseQuery[Parse Query Node<br/>LangGraph]:::orchestrator
-    
-    %% Router e Log
-    Router{DistilBERT Router<br/>Intent Recognition}:::router
-    RLLogger[(PostgreSQL<br/>RL Logs & Energy)]:::db
-    
-    %% Flusso Iniziale
-    User -->|Query Utente| ParseQuery
-    ParseQuery -->|Estrae Metadati| Router
-    Router -->|Salva Scelta e Token| RLLogger
-    
-    %% Routing Paths
-    Router -->|no_retrieval| DirectAnswer[Direct Answer Node<br/>Llama-3]:::llm
-    Router -->|vector| VectorSearch[Vector Search Node]:::process
-    Router -->|sql| SQLSearch[SQL Search Node]:::process
-    Router -->|graph| GraphSearch[Graph Search Node]:::process
-    Router -->|multi| ResolveMulti{Resolve Multi-Source<br/>LLM Judge}:::llm
-    
-    %% Multi-Source Split
-    ResolveMulti -->|Assegna| VectorSearch
-    ResolveMulti -->|Assegna| SQLSearch
-    ResolveMulti -->|Assegna| GraphSearch
-
-    %% Database Interactions
-    VectorSearch -->|Similarity Search| Qdrant[(Qdrant<br/>Abstract PubMed)]:::db
-    SQLSearch -->|Text-to-SQL| Postgres[(PostgreSQL<br/>Trial Clinici)]:::db
-    GraphSearch -->|Cypher QA| Neo4j[(Neo4j<br/>Knowledge Graph)]:::db
-
-    %% Graph Logic (Lookup)
-    GraphSearch -->|Estrae Nodi/Relazioni| CondGraph{Trovati ID 'ns/'?}:::process
-    CondGraph -->|Sì| LookupNode[Lookup Node<br/>Cypher ID-to-Name]:::process
-    LookupNode -->|Traduzione Entità| Neo4j
-    CondGraph -->|No| LateFusion
-    LookupNode --> LateFusion
-
-    %% Late Fusion
-    Qdrant -->|Testo Recuperato| LateFusion
-    Postgres -->|Dati Tabellari| LateFusion
-    
-    LateFusion[Late Fusion Node<br/>Sintesi Dati (Llama-3)]:::llm
-    
-    %% Risposta Finale
-    LateFusion --> FinalAnswer([Risposta Finale Unificata]):::process
-    DirectAnswer --> FinalAnswer
-    FinalAnswer --> User
-    
-    %% Feedback Loop (RLUF)
-    User -.->|Feedback Utente 👍/👎| RLLogger
-    RLLogger -.->|Aggiornamento Pesi| Router
 ```bash
 git clone [https://github.com/your-username/hybrid-rag-system.git](https://github.com/your-username/hybrid-rag-system.git)
 cd hybrid-rag-system
