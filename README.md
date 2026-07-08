@@ -64,4 +64,4 @@ streamlit run src/app.py
 ### Architettura di Sistema
 
 Di seguito l'architettura del nostro RAG Ibrido Multi-Sorgente con Router Neurale:
-![Architettura](Hybrid_RAG_architecture.svg)
+![Architettura](Hybrid_RAG_Architecture.drawio.svg)
