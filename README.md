@@ -40,13 +40,35 @@ NEO4J_PASSWORD=Password
 Bash
 docker compose up -d
 
-💉 Medical Data Ingestion
-The system comes with a massive ingestion pipeline to populate the three databases with medical literature, neurology graphs, and clinical trial records.
-To initialize and populate the databases:
+co come riscrivere la sezione del README.md per renderla cristallina, includendo i riferimenti a Hetionet e valorizzando il lavoro di estrazione che hai fatto.
+
+Sostituisci la vecchia sezione ## 💉 Medical Data Ingestion con questa versione dettagliata:
+
+Markdown
+## 💉 Pipeline ETL e Data Ingestion
+
+Il sistema non utilizza un dataset statico preconfezionato, ma costruisce la sua base di conoscenza attraverso una vera e propria pipeline ETL in due fasi:
+
+### Fase 1: Data Collection & Subgraph Extraction
+Prima di popolare i database, è necessario raccogliere ed estrarre i dati grezzi dalle fonti ufficiali:
+
+1. **Il Grafo Medico Base (Hetionet):** Scarica il file JSON originale di Hetionet v1.0 dal repository ufficiale e posizionalo nella cartella `data/raw/`:
+   [Link per il download di Hetionet (hetionet-v1.0.json.bz2)](https://github.com/hetio/hetionet/tree/master/hetnet/json)
+   
+2. **Estrazione del Sottografo:** Estrai solo i nodi e gli archi rilevanti per il dominio del progetto (malattie, geni, farmaci, sintomi):
+   ```bash
+   python scripts/data_collection/extract_hetionet.py
+Arricchimento Dati dal Web (API Fetching):
+Utilizza gli script dedicati per interrogare le API pubbliche (es. PubMed, ClinicalTrials.gov) e raccogliere gli abstract vettoriali e i dati tabellari corrispondenti alle entità del grafo estrattto:
+
+Bash
+python scripts/data_collection/fetch_pubmed_api.py
+python scripts/data_collection/fetch_medical_api.py
+Fase 2: Bulk Ingestion nei 3 Database
+Una volta generati i dataset elaborati nella cartella data/processed/, puoi avviare l'ingestione parallela. Questo script popolerà Qdrant (generando gli embeddings), Neo4j (creando nodi e relazioni Cypher) e PostgreSQL (creando le tabelle relazionali):
 
 Bash
 python src/medical_bulk_ingestion.py
-(Note: This process may take several minutes depending on your hardware).
 
 🧠 Neural Router Training Pipeline
 The router learns through Curriculum Learning. To initialize the brain of the system:
