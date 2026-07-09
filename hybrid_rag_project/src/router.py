@@ -1,10 +1,22 @@
 import re
 import json
-from typing import TypedDict, List, Any
+from typing import TypedDict, List, Any, Annotated
+import operator
 from langgraph.graph import StateGraph, START, END
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.callbacks import BaseCallbackHandler
 from config import GROQ_API_KEY
+
+class GroqTokenCallback(BaseCallbackHandler):
+    def __init__(self):
+        self.total_tokens = 0
+    def on_llm_end(self, response, **kwargs):
+        if response.generations:
+            for gen in response.generations[0]:
+                if hasattr(gen, 'message') and hasattr(gen.message, 'response_metadata'):
+                    usage = gen.message.response_metadata.get('token_usage', {})
+                    self.total_tokens += usage.get('total_tokens', 0)
 
 # Import dei retriever e moduli di sistema
 from vector_retriever import VectorRetriever
@@ -16,6 +28,9 @@ from rl_logger import log_interaction
 # 1. Definizione dello stato aggiornata
 class AgentState(TypedDict):
     query: str
+    vector_query: str
+    sql_query: str
+    graph_query: str
     chosen_arm: str
     log_id: int
     routing_decision: List[str]
@@ -25,7 +40,7 @@ class AgentState(TypedDict):
     lookup_results: dict
     sql_context: str
     final_answer: str
-    total_tokens: int
+    total_tokens: Annotated[int, operator.add]
 
 # 2. Inizializzazioni
 vector_retriever = VectorRetriever(collection_name="hybrid_rag", model_name="intfloat/multilingual-e5-base")
@@ -42,7 +57,7 @@ from langchain_classic.chains import create_sql_query_chain
 load_dotenv()
 postgres_uri = os.getenv("POSTGRES_URI", "")
 if postgres_uri and "TUAPASSWORD" not in postgres_uri:
-    db = SQLDatabase.from_uri(postgres_uri)
+    db = SQLDatabase.from_uri(postgres_uri, sample_rows_in_table_info=0)
     llm_sql = ChatGroq(model="llama-3.1-8b-instant", temperature=0)
     from langchain_core.prompts import PromptTemplate
     custom_sql_template = PromptTemplate.from_template(
@@ -51,7 +66,7 @@ Il tuo UNICO obiettivo è scrivere la query SQL per estrarre le righe necessarie
 
 REGOLE RIGIDE (PARADIGMA TAG):
 1. ESTRAZIONE GREZZA: Usa solo semplici query SELECT. Anche se l'utente chiede "quanti", "somma" o "totale", tu NON usare funzioni di aggregazione (SUM, COUNT, AVG). Devi estrarre le singole righe, sarà il sistema successivo a contarle o sommarle.
-2. CAMPI: Estrai sempre i campi descrittivi (es. nct_id, title, enrollment, sponsor.name).
+2. CAMPI: Estrai sempre i campi descrittivi (es. nct_id, title, enrollment, sponsors.name).
 3. TESTO: Usa SEMPRE ILIKE '%Nome%' quando filtri per stringhe testuali.
 4. ID: Se l'utente fornisce un ID come 'NCT...', usa WHERE studies.nct_id = 'NCT...'.
 5. LIMITE: Limita sempre la query a un massimo di {top_k} risultati.
@@ -83,13 +98,21 @@ else:
 import json
 
 # 3. Risoluzione Multi-Source usando gli Schemi Dettagliati
-def resolve_multi_source(query: str, schemas: str) -> List[str]:
+def resolve_multi_source(query: str, schemas: str):
     llm = ChatGroq(temperature=0, groq_api_key=GROQ_API_KEY, model_name="llama-3.1-8b-instant")
     prompt = ChatPromptTemplate.from_messages([
-        ("system", """Analizza la query dell'utente e gli schemi forniti. Devi decidere quali database interrogare. Restituisci SOLO un array JSON contenente una o più delle seguenti stringhe: ["vector", "graph", "sql"]. Non aggiungere altro.
-Schemi:
+    ("system", """Sei un Maestro di Scomposizione Query per un sistema RAG Multi-Sorgente. 
+La domanda dell'utente richiede informazioni da database diversi. Il tuo compito è dividere la domanda in SOTTO-DOMANDE specifiche, assegnando ciascuna al database corretto in base agli schemi forniti.
+
+REGOLE ASSOLUTE:
+1. Restituisci ESCLUSIVAMENTE un dizionario JSON piatto (flat). NON creare dizionari nidificati.
+2. Le chiavi permesse sono solo: "vector", "sql", "graph".
+3. Il valore di ogni chiave DEVE ESSERE UNA SEMPLICE STRINGA DI TESTO (es. "Quanti pazienti sono arruolati?"). 
+4. NON scrivere codice (no SQL, no Cypher) nei valori, scrivi solo domande in LINGUAGGIO NATURALE.
+
+Schemi dei Database:
 {schemas}"""),
-        ("user", "{query}")
+      ("user", "{query}")
     ])
     try:
         res = (prompt | llm).invoke({"schemas": schemas, "query": query})
@@ -97,25 +120,20 @@ Schemi:
         print(f"[Router - DEBUG] Token spesi per resolve_multi_source: {tokens}")
         content = res.content.strip()
         
-        match = re.search(r'\[.*\]', content, re.DOTALL)
+        match = re.search(r'\{.*\}', content, re.DOTALL)
         if match:
             try:
-                return json.loads(match.group(0))
+                parsed_dict = json.loads(match.group(0))
+                return parsed_dict, tokens
             except json.JSONDecodeError:
                 pass
-                
-        # Fallback manuale basato su substring se il JSON fallisce o manca
-        fallback_routes = []
-        content_lower = content.lower()
-        for db_name in ["vector", "graph", "sql"]:
-            if db_name in content_lower:
-                fallback_routes.append(db_name)
-                
-        return fallback_routes if fallback_routes else ["vector", "graph"]
+        
+        # Fallback di sicurezza: se fallisce, restituisce la query originale per entrambi
+        return {"vector": query, "graph": query}, tokens
         
     except Exception as e:
         print(f"[Router] Errore in resolve_multi_source: {e}")
-        return ["vector", "graph"]
+        return {"vector": query, "graph": query}, 0
 
 # 4. Il Nodo Decisionale (Cuore del RL)
 def parse_query_node(state: AgentState):
@@ -138,23 +156,34 @@ def parse_query_node(state: AgentState):
     log_id = log_interaction(query, action_name, token_cost=0)
     
     routes = []
+    tokens_spesi = 0
+    state_updates = {}
+    
     if action_name == "multi":
         detailed_schemas = get_detailed_schemas()
         schemas_str = f"Vector: {detailed_schemas['vector']}\nGraph: {detailed_schemas['graph']}\nSQL: {detailed_schemas['sql']}"
-        multi_decision = resolve_multi_source(query, schemas_str)
-        for db_name in ["vector", "graph", "sql"]:
-            if db_name in multi_decision: routes.append(f"{db_name}_search")
-        if not routes: routes.append("vector_search")
+        
+        # multi_decision ora è un DIZIONARIO (es. {"vector": "sotto-domanda", "sql": "sotto-domanda"})
+        multi_decision, tokens_spesi = resolve_multi_source(query, schemas_str)
+        
+        for db_name, sub_query in multi_decision.items():
+            if db_name in ["vector", "graph", "sql"]:
+                routes.append(f"{db_name}_search")
+                state_updates[f"{db_name}_query"] = sub_query
+                
+        if not routes: 
+            routes.append("vector_search")
+            state_updates["vector_query"] = query
     elif action_name == "no_retrieval":
         routes = ["direct_answer"]
     else:
         routes = [f"{action_name}_search"]
         
-    return {"chosen_arm": action_name, "log_id": log_id, "routing_decision": routes, "total_tokens": 0}
+    return {"chosen_arm": action_name, "log_id": log_id, "routing_decision": routes, "total_tokens": tokens_spesi, **state_updates}
 
 def vector_search_node(state: AgentState):
     """Esegue la ricerca sul vector store."""
-    original_query = state["query"]
+    original_query = state.get("vector_query") or state["query"]
     
     # FIX PER IL MODELLO E5: Aggiungiamo il prefisso obbligatorio per le domande
     e5_query = f"query: {original_query}"
@@ -172,32 +201,41 @@ def vector_search_node(state: AgentState):
 
 def graph_search_node(state: AgentState):
     """Esegue la ricerca sul knowledge graph."""
-    query = state["query"]
+    cb = GroqTokenCallback()
+    query = state.get("graph_query") or state["query"]
     print(f"[Router] Esecuzione Graph Search per: {query}")
     try:
         # Esegue una query con LangChain GraphCypherQAChain
-        result = graph_retriever.ask(query)
+        result = graph_retriever.ask(query, callbacks=[cb])
+        tokens_aggiuntivi = cb.total_tokens
         # Per assicurarci che gli ID entrino correttamente nello stato in base ai pattern LangGraph
         found_ids = list(set(re.findall(r'\bns/[\w-]+\b', str(result))))
     except Exception as e:
         print(f"[Router] Errore Graph Search: {e}")
         result = {"error": f"Errore Graph Search: {e}"}
         found_ids = []
-    return {"graph_result": result, "ns_ids": found_ids}
+        tokens_aggiuntivi = 0
+        
+    return {"graph_result": result, "ns_ids": found_ids, "total_tokens": tokens_aggiuntivi}
 
 def sql_search_node(state: AgentState):
     """Esegue la ricerca sul database SQL."""
-    query = state["query"]
+    cb = GroqTokenCallback()
+    query = state.get("sql_query") or state["query"]
     print(f"[Router] Esecuzione SQL Search per: {query}")
     try:
         if sql_chain:
-            result = sql_chain.invoke({"question": query})
+            result = sql_chain.invoke({"question": query}, config={"callbacks": [cb]})
+            tokens_aggiuntivi = cb.total_tokens
         else:
             result = "Database SQL non configurato o credenziali assenti."
+            tokens_aggiuntivi = 0
     except Exception as e:
         print(f"[Router] Errore SQL Search: {e}")
         result = f"Errore SQL Search: {e}"
-    return {"sql_context": result}
+        tokens_aggiuntivi = 0
+        
+    return {"sql_context": result, "total_tokens": tokens_aggiuntivi}
 
 def route_after_graph(state: AgentState):
     """
@@ -319,9 +357,8 @@ Contesto SQL:
     })
     
     tokens = response.response_metadata.get('token_usage', {}).get('total_tokens', 0)
-    new_total = state.get("total_tokens", 0) + tokens
     
-    return {"final_answer": response.content, "total_tokens": new_total}
+    return {"final_answer": response.content, "total_tokens": tokens}
 
 def direct_answer_node(state: AgentState):
     """Nodo per rispondere direttamente senza RAG (selezionato dal RL Router quando non serve interrogare DB)."""
@@ -343,8 +380,7 @@ def direct_answer_node(state: AgentState):
     try:
         response = chain.invoke({"query": query})
         tokens = response.response_metadata.get('token_usage', {}).get('total_tokens', 0)
-        new_total = state.get("total_tokens", 0) + tokens
-        return {"final_answer": response.content, "total_tokens": new_total}
+        return {"final_answer": response.content, "total_tokens": tokens}
     except Exception as e:
         print(f"[Router] Errore Direct Answer: {e}")
         return {"final_answer": "Si è verificato un errore."}

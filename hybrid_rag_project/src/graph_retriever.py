@@ -90,10 +90,10 @@ class GraphRetriever:
             qa_prompt=QA_PROMPT
         )
 
-    def ask(self, question: str):
+    def ask(self, question: str, callbacks=None):
         """Pone una domanda basandosi sui dati nel knowledge graph."""
         try:
-            return self.chain.invoke({"query": question})
+            return self.chain.invoke({"query": question}, config={"callbacks": callbacks})
         except Exception as e:
             print(f"[Router] Fallback attivato: Errore sintassi Cypher intercettato. Dettagli: {str(e)[:100]}...")
             print("[Router] Passaggio trasparente al Vector Search.")
