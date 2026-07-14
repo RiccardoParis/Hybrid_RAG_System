@@ -8,15 +8,32 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.callbacks import BaseCallbackHandler
 from config import GROQ_API_KEY
 
+LLM_PRICING = {
+    "llama-3.1-8b-instant": {"input": 0.05 / 1e6, "output": 0.08 / 1e6},
+    "llama-3.3-70b-versatile": {"input": 0.59 / 1e6, "output": 0.79 / 1e6},
+    "qwen/qwen3-32b": {"input": 0.29 / 1e6, "output": 0.59 / 1e6},
+    "meta-llama/llama-4-scout-17b-16e-instruct": {"input": 0.11 / 1e6, "output": 0.34 / 1e6}
+}
+
 class GroqTokenCallback(BaseCallbackHandler):
-    def __init__(self):
-        self.total_tokens = 0
+    def __init__(self, model_name: str):
+        self.model_name = model_name
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self.total_cost = 0.0
+
     def on_llm_end(self, response, **kwargs):
         if response.generations:
             for gen in response.generations[0]:
                 if hasattr(gen, 'message') and hasattr(gen.message, 'response_metadata'):
                     usage = gen.message.response_metadata.get('token_usage', {})
-                    self.total_tokens += usage.get('total_tokens', 0)
+                    inp = usage.get('prompt_tokens', 0)
+                    out = usage.get('completion_tokens', 0)
+                    self.input_tokens += inp
+                    self.output_tokens += out
+                    
+                    pricing = LLM_PRICING.get(self.model_name, {"input": 0.0, "output": 0.0})
+                    self.total_cost += (inp * pricing["input"]) + (out * pricing["output"])
 
 # Import dei retriever e moduli di sistema
 from vector_retriever import VectorRetriever
@@ -40,7 +57,9 @@ class AgentState(TypedDict):
     lookup_results: dict
     sql_context: str
     final_answer: str
-    total_tokens: Annotated[int, operator.add]
+    input_tokens: Annotated[int, operator.add]
+    output_tokens: Annotated[int, operator.add]
+    total_cost: Annotated[float, operator.add]
 
 # 2. Inizializzazioni
 vector_retriever = VectorRetriever(collection_name="hybrid_rag", model_name="intfloat/multilingual-e5-base")
@@ -61,34 +80,53 @@ if postgres_uri and "TUAPASSWORD" not in postgres_uri:
     llm_sql = ChatGroq(model="llama-3.1-8b-instant", temperature=0)
     from langchain_core.prompts import PromptTemplate
     custom_sql_template = PromptTemplate.from_template(
-"""Sei un estrattore di dati (Data Extractor) esperto in SQL (dialetto {dialect}).
-Il tuo UNICO obiettivo è scrivere la query SQL per estrarre le righe necessarie.
+"""You are a Data Extractor expert in SQL (dialect {dialect}).
+Your SOLE objective is to write the SQL query to extract the necessary data.
 
-REGOLE RIGIDE (PARADIGMA TAG):
-1. ESTRAZIONE GREZZA: Usa solo semplici query SELECT. Anche se l'utente chiede "quanti", "somma" o "totale", tu NON usare funzioni di aggregazione (SUM, COUNT, AVG). Devi estrarre le singole righe, sarà il sistema successivo a contarle o sommarle.
-2. CAMPI: Estrai sempre i campi descrittivi (es. nct_id, title, enrollment, sponsors.name).
-3. TESTO: Usa SEMPRE ILIKE '%Nome%' quando filtri per stringhe testuali.
-4. ID: Se l'utente fornisce un ID come 'NCT...', usa WHERE studies.nct_id = 'NCT...'.
-5. LIMITE: Limita sempre la query a un massimo di {top_k} risultati.
+STRICT RULES (TAG PARADIGM):
+1. DELEGATION OF RESPONSIBILITY:
+   - If the user asks for a calculation, aggregation, or statistical operation (e.g., "how many", "average", "total", "group by"), YOU MUST use native SQL aggregation functions (COUNT, SUM, AVG, GROUP BY). The database is designed for fast math.
+   - If the user asks for semantic reasoning over text (e.g., "summarize the reviews", "what do the reports say"), DO NOT use aggregations. Extract the raw text rows (e.g., SELECT text_field FROM...) so the downstream LLM can read them.
+2. FIELDS: Always extract descriptive fields relevant to the question.
+3. TEXT MATCHING: ALWAYS use ILIKE '%Name%' when filtering text strings. If you filter by ANY text field (e.g., status, phase, name, title), NEVER use exact string matching (=). You MUST ALWAYS use the ILIKE operator with wildcards (e.g., field_name ILIKE '%value%'). This ensures robustness against variations in capitalization and formatting.
+4. AVOID HALLUCINATED FILTERS: DO NOT invent WHERE clauses. If the user simply asks to aggregate or group by a column (e.g., 'grouped by phase', 'by status'), you MUST NOT add a WHERE clause for that column. Just use the GROUP BY clause.
+5. ID MATCHING: If the user provides an ID like 'NCT...', use WHERE studies.nct_id = 'NCT...'.
+6. LIMIT: If extracting raw rows, always limit the query to a maximum of {top_k} results.
+7. SYNTAX GUARDRAIL: Use EXACTLY the table names declared in the schema. Do not invent undeclared aliases in the FROM clause.
 
 OUTPUT:
-Restituisci ESCLUSIVAMENTE la query SQL valida. Nessuna spiegazione, nessuna introduzione, nessun markdown. Solo il codice.
+Return EXCLUSIVELY the valid SQL query. No explanations, no introductions, no markdown. Just the code.
 
-Tabelle a disposizione:
+Available tables:
 {table_info}
 
-Domanda: {input}
+Question: {input}
 SQLQuery:"""
 )
     execute_query = QuerySQLDatabaseTool(db=db)
     write_query = create_sql_query_chain(llm_sql, db, prompt=custom_sql_template)
     
     def clean_sql_output(text: str) -> str:
+        print(f"\n[SQL DEBUG] Output grezzo LLM:\n{text}\n")
+        
         match = re.search(r"```sql(.*?)```", text, re.DOTALL | re.IGNORECASE)
-        if match: return match.group(1).strip()
+        if match: 
+            sql = match.group(1).strip()
+            print(f"[SQL DEBUG] Query pulita in esecuzione:\n{sql}\n")
+            return sql
+            
         match = re.search(r"```(.*?)```", text, re.DOTALL)
-        if match: return match.group(1).strip()
-        if "SQLQuery:" in text: return text.split("SQLQuery:")[1].strip()
+        if match: 
+            sql = match.group(1).strip()
+            print(f"[SQL DEBUG] Query pulita in esecuzione:\n{sql}\n")
+            return sql
+            
+        if "SQLQuery:" in text: 
+            sql = text.split("SQLQuery:")[1].strip()
+            print(f"[SQL DEBUG] Query pulita in esecuzione:\n{sql}\n")
+            return sql
+            
+        print(f"[SQL DEBUG] Query pulita in esecuzione (fallback):\n{text.strip()}\n")
         return text.strip()
         
     sql_chain = write_query | clean_sql_output | execute_query
@@ -101,39 +139,43 @@ import json
 def resolve_multi_source(query: str, schemas: str):
     llm = ChatGroq(temperature=0, groq_api_key=GROQ_API_KEY, model_name="llama-3.1-8b-instant")
     prompt = ChatPromptTemplate.from_messages([
-    ("system", """Sei un Maestro di Scomposizione Query per un sistema RAG Multi-Sorgente. 
-La domanda dell'utente richiede informazioni da database diversi. Il tuo compito è dividere la domanda in SOTTO-DOMANDE specifiche, assegnando ciascuna al database corretto in base agli schemi forniti.
+    ("system", """You are a Query Decomposition Master for a Multi-Source RAG system. 
+The user's query requires information from different databases. Your task is to break down the query into specific SUB-QUESTIONS, assigning each to the correct database based on the provided schemas.
 
-REGOLE ASSOLUTE:
-1. Restituisci ESCLUSIVAMENTE un dizionario JSON piatto (flat). NON creare dizionari nidificati.
-2. Le chiavi permesse sono solo: "vector", "sql", "graph".
-3. Il valore di ogni chiave DEVE ESSERE UNA SEMPLICE STRINGA DI TESTO (es. "Quanti pazienti sono arruolati?"). 
-4. NON scrivere codice (no SQL, no Cypher) nei valori, scrivi solo domande in LINGUAGGIO NATURALE.
+STRICT RULES:
+1. Output EXCLUSIVELY a flat JSON dictionary. DO NOT create nested dictionaries.
+2. The allowed keys are strictly: "vector", "sql", "graph".
+3. The value for each key MUST BE A SIMPLE TEXT STRING (e.g., "How many patients are enrolled?"). 
+4. DO NOT write code (no SQL, no Cypher) in the values, write only NATURAL LANGUAGE questions.
 
-Schemi dei Database:
+Database Schemas:
 {schemas}"""),
       ("user", "{query}")
     ])
     try:
         res = (prompt | llm).invoke({"schemas": schemas, "query": query})
-        tokens = res.response_metadata.get('token_usage', {}).get('total_tokens', 0)
-        print(f"[Router - DEBUG] Token spesi per resolve_multi_source: {tokens}")
+        usage = res.response_metadata.get('token_usage', {})
+        inp = usage.get('prompt_tokens', 0)
+        out = usage.get('completion_tokens', 0)
+        pricing = LLM_PRICING.get("llama-3.1-8b-instant", {"input": 0.0, "output": 0.0})
+        cost = (inp * pricing["input"]) + (out * pricing["output"])
+        print(f"[Router - DEBUG] Costo per resolve_multi_source: ${cost:.5f}")
         content = res.content.strip()
         
         match = re.search(r'\{.*\}', content, re.DOTALL)
         if match:
             try:
                 parsed_dict = json.loads(match.group(0))
-                return parsed_dict, tokens
+                return parsed_dict, inp, out, cost
             except json.JSONDecodeError:
                 pass
         
         # Fallback di sicurezza: se fallisce, restituisce la query originale per entrambi
-        return {"vector": query, "graph": query}, tokens
+        return {"vector": query, "graph": query}, inp, out, cost
         
     except Exception as e:
         print(f"[Router] Errore in resolve_multi_source: {e}")
-        return {"vector": query, "graph": query}, 0
+        return {"vector": query, "graph": query}, 0, 0, 0.0
 
 # 4. Il Nodo Decisionale (Cuore del RL)
 def parse_query_node(state: AgentState):
@@ -153,10 +195,10 @@ def parse_query_node(state: AgentState):
     print(f"[Router] Braccio scelto: {action_name} (Exploration: {is_expl})")
     
     # Registrazione su PostgreSQL con token_cost iniziale a 0
-    log_id = log_interaction(query, action_name, token_cost=0)
+    log_id = log_interaction(query, action_name)
     
     routes = []
-    tokens_spesi = 0
+    inp, out, cost = 0, 0, 0.0
     state_updates = {}
     
     if action_name == "multi":
@@ -164,7 +206,7 @@ def parse_query_node(state: AgentState):
         schemas_str = f"Vector: {detailed_schemas['vector']}\nGraph: {detailed_schemas['graph']}\nSQL: {detailed_schemas['sql']}"
         
         # multi_decision ora è un DIZIONARIO (es. {"vector": "sotto-domanda", "sql": "sotto-domanda"})
-        multi_decision, tokens_spesi = resolve_multi_source(query, schemas_str)
+        multi_decision, inp, out, cost = resolve_multi_source(query, schemas_str)
         
         for db_name, sub_query in multi_decision.items():
             if db_name in ["vector", "graph", "sql"]:
@@ -179,7 +221,7 @@ def parse_query_node(state: AgentState):
     else:
         routes = [f"{action_name}_search"]
         
-    return {"chosen_arm": action_name, "log_id": log_id, "routing_decision": routes, "total_tokens": tokens_spesi, **state_updates}
+    return {"chosen_arm": action_name, "log_id": log_id, "routing_decision": routes, "input_tokens": inp, "output_tokens": out, "total_cost": cost, **state_updates}
 
 def vector_search_node(state: AgentState):
     """Esegue la ricerca sul vector store."""
@@ -201,41 +243,45 @@ def vector_search_node(state: AgentState):
 
 def graph_search_node(state: AgentState):
     """Esegue la ricerca sul knowledge graph."""
-    cb = GroqTokenCallback()
+    cb = GroqTokenCallback(model_name="llama-3.1-8b-instant")
     query = state.get("graph_query") or state["query"]
     print(f"[Router] Esecuzione Graph Search per: {query}")
     try:
         # Esegue una query con LangChain GraphCypherQAChain
         result = graph_retriever.ask(query, callbacks=[cb])
-        tokens_aggiuntivi = cb.total_tokens
+        inp = cb.input_tokens
+        out = cb.output_tokens
+        cost = cb.total_cost
         # Per assicurarci che gli ID entrino correttamente nello stato in base ai pattern LangGraph
         found_ids = list(set(re.findall(r'\bns/[\w-]+\b', str(result))))
     except Exception as e:
         print(f"[Router] Errore Graph Search: {e}")
         result = {"error": f"Errore Graph Search: {e}"}
         found_ids = []
-        tokens_aggiuntivi = 0
+        inp, out, cost = 0, 0, 0.0
         
-    return {"graph_result": result, "ns_ids": found_ids, "total_tokens": tokens_aggiuntivi}
+    return {"graph_result": result, "ns_ids": found_ids, "input_tokens": inp, "output_tokens": out, "total_cost": cost}
 
 def sql_search_node(state: AgentState):
     """Esegue la ricerca sul database SQL."""
-    cb = GroqTokenCallback()
+    cb = GroqTokenCallback(model_name="llama-3.1-8b-instant")
     query = state.get("sql_query") or state["query"]
     print(f"[Router] Esecuzione SQL Search per: {query}")
     try:
         if sql_chain:
             result = sql_chain.invoke({"question": query}, config={"callbacks": [cb]})
-            tokens_aggiuntivi = cb.total_tokens
+            inp = cb.input_tokens
+            out = cb.output_tokens
+            cost = cb.total_cost
         else:
             result = "Database SQL non configurato o credenziali assenti."
-            tokens_aggiuntivi = 0
+            inp, out, cost = 0, 0, 0.0
     except Exception as e:
         print(f"[Router] Errore SQL Search: {e}")
         result = f"Errore SQL Search: {e}"
-        tokens_aggiuntivi = 0
+        inp, out, cost = 0, 0, 0.0
         
-    return {"sql_context": result, "total_tokens": tokens_aggiuntivi}
+    return {"sql_context": result, "input_tokens": inp, "output_tokens": out, "total_cost": cost}
 
 def route_after_graph(state: AgentState):
     """
@@ -286,13 +332,15 @@ def late_fusion_node(state: AgentState):
     )
     
     prompt = ChatPromptTemplate.from_messages([
-        ("system", """Sei un assistente medico analitico. Riceverai dei frammenti di testo (da PubMed) e/o una lista di record grezzi estratti da un database relazionale (es. trial clinici).
+        ("system", """You are an analytical medical assistant. You will receive text snippets (from PubMed) and/or records extracted from a relational database (e.g., clinical trials).
 
-Se l'utente ti chiede un calcolo, un conteggio o una somma, DEVI farla tu stesso leggendo attentamente i record SQL forniti nel contesto.
+CRITICAL INSTRUCTIONS FOR SQL CONTEXT:
+- If the user asked for a calculation, count, sum, or average, the SQL context will directly provide the exact computed number. Do NOT attempt to recount or recalculate; simply trust the provided number and formulate a clear, natural language answer.
+- If the user asked for a semantic summary, the SQL context will provide raw text rows. Read them carefully and summarize them as requested.
+- TRUST THE FILTERS: If the user's question contains specific filters (e.g., "with exactly 300 patients" or "sponsored by Pfizer"), assume the SQL database has already applied these filters perfectly. Do NOT refuse to answer just because the filtering values (like the number 300) are not explicitly printed in the SQL context.
+- If the SQL context provides a list of raw database tuples (e.g., [('Item 1',), ('Item 2',)]), YOU MUST NEVER print the Python programming symbols like brackets [], parentheses (), or trailing commas. Extract the pure text and format it as a clean, human-readable bulleted list.
 
-Spiega sempre il tuo ragionamento. Ad esempio: 'Ho trovato X studi. Lo studio A ha Y pazienti, lo studio B ha Z pazienti, per un totale di W pazienti.'
-
-Se le informazioni per rispondere non sono presenti in NESSUNO dei contesti forniti, dichiara esplicitamente che i dati a tua disposizione non contengono la risposta e FERMATI. Non inventare o usare conoscenze pregresse.
+If the information to answer is not present in ANY of the provided contexts, explicitly state that the available data does not contain the answer and STOP. Do not invent or use prior knowledge.
 
 You are given independent context sources related to the user's question:
 
@@ -305,36 +353,30 @@ VectorRAG context: {vector_res}
 SQL context: {sql_res}
 
 Your task is to:
-
 Read the GraphRAG context. If it contains raw IDs (starting with "ns/"), use the Graph lookup JSON mapping to translate them into human-readable names. Do not ignore the GraphRAG context, just translate its entities.
-
 Merge the translated GraphRAG context, the VectorRAG context, and the SQL context to answer the user's question.
 
 Instructions:
-
 If both sources provide relevant and compatible information, merge them.
-
 If only one source provides useful content, use that.
-
 If the sources conflict, select the more specific or factual one.
-
 Output only one unified, conversational answer.
 
 CRITICAL STYLE RULE: You MUST hide your internal RAG process from the user. NEVER use words like "context", "SQL context", "tuple", "VectorRAG", "GraphRAG", "pipeline", or "source". 
 Do NOT say things like "According to the SQL context..." or "The database provides a tuple...". 
-Do NOT explain that you are merging sources. Just state the synthesized facts directly and naturally (e.g., simply say "Nel database ci sono in totale 6 auto usate.")."""),
-        ("user", """Domanda: {query}
+Just state the synthesized facts directly and naturally."""),
+        ("user", """Question: {query}
         
-Contesto Vector Search:
+Vector Search Context:
 {vector_res}
 
-Contesto Graph Search:
+Graph Search Context:
 {graph_res}
 
-Contesto Lookup:
+Lookup Context:
 {lookup_res}
 
-Contesto SQL:
+SQL Context:
 {sql_res}
 """)
     ])
@@ -356,9 +398,13 @@ Contesto SQL:
         "sql_res": str(sql_res)
     })
     
-    tokens = response.response_metadata.get('token_usage', {}).get('total_tokens', 0)
+    usage = response.response_metadata.get('token_usage', {})
+    inp = usage.get('prompt_tokens', 0)
+    out = usage.get('completion_tokens', 0)
+    pricing = LLM_PRICING.get("llama-3.3-70b-versatile", {"input": 0.0, "output": 0.0})
+    cost = (inp * pricing["input"]) + (out * pricing["output"])
     
-    return {"final_answer": response.content, "total_tokens": tokens}
+    return {"final_answer": response.content, "input_tokens": inp, "output_tokens": out, "total_cost": cost}
 
 def direct_answer_node(state: AgentState):
     """Nodo per rispondere direttamente senza RAG (selezionato dal RL Router quando non serve interrogare DB)."""
@@ -372,18 +418,22 @@ def direct_answer_node(state: AgentState):
     )
     
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "Sei un utile assistente. Rispondi alla domanda dell'utente nel modo più diretto e conciso possibile."),
+        ("system", "You are a helpful assistant. Answer the user's question as directly and concisely as possible."),
         ("user", "{query}")
     ])
     
     chain = prompt | llm
     try:
         response = chain.invoke({"query": query})
-        tokens = response.response_metadata.get('token_usage', {}).get('total_tokens', 0)
-        return {"final_answer": response.content, "total_tokens": tokens}
+        usage = response.response_metadata.get('token_usage', {})
+        inp = usage.get('prompt_tokens', 0)
+        out = usage.get('completion_tokens', 0)
+        pricing = LLM_PRICING.get("llama-3.1-8b-instant", {"input": 0.0, "output": 0.0})
+        cost = (inp * pricing["input"]) + (out * pricing["output"])
+        return {"final_answer": response.content, "input_tokens": inp, "output_tokens": out, "total_cost": cost}
     except Exception as e:
         print(f"[Router] Errore Direct Answer: {e}")
-        return {"final_answer": "Si è verificato un errore."}
+        return {"final_answer": "Si è verificato un errore.", "input_tokens": 0, "output_tokens": 0, "total_cost": 0.0}
 
 # 1. Inizializza il StateGraph
 workflow = StateGraph(AgentState)

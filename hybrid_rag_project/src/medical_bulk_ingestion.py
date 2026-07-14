@@ -61,9 +61,11 @@ class Location(Base):
 
 # --- FUNZIONE INGESTIONE SQL ---
 def ingest_sql_from_json(json_path):
-    print(f"[SQL] Connessione a PostgreSQL e reset tabelle...")
+    print(f"[SQL] Connessione a PostgreSQL...")
     engine = create_engine(POSTGRES_URI)
-    Base.metadata.drop_all(engine)
+    
+    # RIMOSSO: Base.metadata.drop_all(engine) <- Evitiamo di cancellare i vecchi dati!
+    # create_all creerà le tabelle solo se non esistono già
     Base.metadata.create_all(engine)
     
     Session = sessionmaker(bind=engine)
@@ -73,8 +75,9 @@ def ingest_sql_from_json(json_path):
     with open(json_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
 
-    sponsor_cache = {}
-    drug_cache = {}
+    # Pre-carichiamo cache per evitare errori di unicità
+    sponsor_cache = {s.name: s for s in session.query(Sponsor).all()}
+    drug_cache = {d.name: d for d in session.query(Drug).all()}
 
     for row in data:
         # 1. Farmaco
@@ -87,7 +90,7 @@ def ingest_sql_from_json(json_path):
             
         drug_obj = drug_cache[d_name]
 
-        # Evita duplicati di trial
+        # Evita duplicati di trial se esegui lo script due volte
         if session.query(Study).filter_by(nct_id=row['nct_id']).first():
             continue
 
@@ -95,7 +98,7 @@ def ingest_sql_from_json(json_path):
         study = Study(
             nct_id=row['nct_id'],
             drug_id=drug_obj.id,
-            title=row.get('title', 'Unknown')[:250], # Troncamento sicurezza
+            title=row.get('title', 'Unknown')[:250],
             status=row.get('status', 'Unknown'),
             phase=row.get('phase', 'Unknown'),
             enrollment=row.get('enrollment', 0),
@@ -126,7 +129,7 @@ def ingest_sql_from_json(json_path):
             session.add(location)
 
     session.commit()
-    print(f"[SQL] Ingestione PostgreSQL completata! Salvati {len(data)} trial clinici normalizzati.")
+    print(f"[SQL] Ingestione PostgreSQL completata! Aggiunti {len(data)} nuovi trial clinici.")
 
 # --- ORCHESTRATORE PRINCIPALE ---
 def main():
@@ -137,35 +140,50 @@ def main():
 
     print("=== AVVIO INGESTIONE MASSIVA DOMINIO MEDICO ===")
 
-    # 1. SQL Ingestion
+    # 1. SQL Ingestion (Tumore della Pelle)
     print("\n--- 1. INGESTIONE POSTGRESQL (Trial Clinici) ---")
-    sql_json = os.path.join(tables_dir, "clinical_trials_data.json")
+    sql_json = os.path.join(tables_dir, "skin_cancer_trials_data.json")
     if os.path.exists(sql_json):
         ingest_sql_from_json(sql_json)
     else:
         print(f"[ATTENZIONE] File {sql_json} non trovato.")
 
-    # 2. Graph Ingestion
+    # 2. Graph Ingestion (Tumore della Pelle)
     print("\n--- 2. INGESTIONE NEO4J (Knowledge Graph) ---")
-    graph_json = os.path.join(graphs_dir, "neurology_graph.json")
+    graph_json = os.path.join(graphs_dir, "skin_cancer_graph.json")
     if os.path.exists(graph_json):
         ingest_graph_from_json(graph_json)
     else:
         print(f"[ATTENZIONE] File {graph_json} non trovato.")
 
-    # 3. Vector Ingestion
-    print("\n--- 3. INGESTIONE QDRANT (Paper PubMed) ---")
+    # 3. Vector Ingestion (Abstract PubMed)
+    print("\n--- 3. INGESTIONE QDRANT E METADATI (Paper PubMed) ---")
     text_files = glob.glob(os.path.join(texts_dir, "*.txt"))
     if not text_files:
         print(f"[ATTENZIONE] Nessun file di testo trovato in {texts_dir}.")
     else:
+        all_docs = []
         for idx, file_path in enumerate(text_files, 1):
             filename = os.path.basename(file_path)
             print(f"[{idx}/{len(text_files)}] Vettorizzazione: {filename}...")
-            ingest_document_to_vector(file_path)
-        print("[VECTOR] Ingestione Qdrant completata!")
+            # Importante: usiamo la modifica a ingest.py per NON generare i metadati 113 volte
+            try:
+                docs = ingest_document_to_vector(file_path, generate_metadata=False)
+            except TypeError:
+                # Fallback se non hai ancora aggiornato ingest.py con il parametro generate_metadata
+                docs = ingest_document_to_vector(file_path)
+            
+            if docs:
+                all_docs.extend(docs)
+                
+        print("[VECTOR] Ingestione chunk su Qdrant completata!")
+        
+        print("[VECTOR] Generazione sintesi globale dei metadati (Llama-3)...")
+        from vector_retriever import VectorRetriever
+        vector_retriever = VectorRetriever()
+        vector_retriever.generate_and_save_metadata(all_docs)
 
-    print("\n=== TUTTI I DATI SONO STATI INGERITI CON SUCCESSO! ===")
+    print("\n=== TUTTI I NUOVI DATI SONO STATI INGERITI CON SUCCESSO! ===")
 
 if __name__ == "__main__":
     main()

@@ -19,14 +19,22 @@ def init_log_table(engine):
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         query TEXT NOT NULL,
         chosen_arm VARCHAR(50) NOT NULL,
-        token_cost INTEGER NOT NULL,
         user_reward INTEGER NULL
     );
     """
     with engine.begin() as conn:
         conn.execute(text(create_table_sql))
+        # Aggiornamento dinamico schema
+        try:
+            conn.execute(text("ALTER TABLE rl_logs DROP COLUMN IF EXISTS token_cost;"))
+        except:
+            pass
+        conn.execute(text("ALTER TABLE rl_logs ADD COLUMN IF NOT EXISTS input_tokens INTEGER DEFAULT 0;"))
+        conn.execute(text("ALTER TABLE rl_logs ADD COLUMN IF NOT EXISTS output_tokens INTEGER DEFAULT 0;"))
+        conn.execute(text("ALTER TABLE rl_logs ADD COLUMN IF NOT EXISTS total_cost FLOAT DEFAULT 0.0;"))
+        conn.execute(text("ALTER TABLE rl_logs ADD COLUMN IF NOT EXISTS latency FLOAT DEFAULT 0.0;"))
 
-def log_interaction(query: str, chosen_arm: str, token_cost: int, user_reward: int = None) -> int:
+def log_interaction(query: str, chosen_arm: str, user_reward: int = None) -> int:
     """
     Inserisce un nuovo record. Se user_reward è passato, lo salva immediatamente.
     """
@@ -34,15 +42,14 @@ def log_interaction(query: str, chosen_arm: str, token_cost: int, user_reward: i
     init_log_table(engine)
     
     insert_sql = """
-    INSERT INTO rl_logs (query, chosen_arm, token_cost, user_reward)
-    VALUES (:query, :chosen_arm, :token_cost, :user_reward)
+    INSERT INTO rl_logs (query, chosen_arm, user_reward)
+    VALUES (:query, :chosen_arm, :user_reward)
     RETURNING id;
     """
     with engine.begin() as conn:
         result = conn.execute(text(insert_sql), {
             "query": query,
             "chosen_arm": chosen_arm,
-            "token_cost": token_cost,
             "user_reward": user_reward
         })
         log_id = result.scalar()
@@ -65,20 +72,15 @@ def update_reward(log_id: int, reward_value: int):
             "log_id": log_id
         })
 
-def update_log_final_metrics(log_id: int, answer: str, real_token_cost: int):
-    """
-    Aggiorna la colonna final_answer e il costo reale dei token di un log esistente.
-    """
+def update_log_final_metrics(log_id: int, answer: str, input_tokens: int, output_tokens: int, total_cost: float, latency: float):
     engine = get_engine()
-    
     update_sql = """
     UPDATE rl_logs
-    SET final_answer = :answer, token_cost = :real_token_cost
+    SET final_answer = :answer, input_tokens = :input_tokens, output_tokens = :output_tokens, total_cost = :total_cost, latency = :latency
     WHERE id = :log_id;
     """
     with engine.begin() as conn:
         conn.execute(text(update_sql), {
-            "answer": answer,
-            "real_token_cost": real_token_cost,
-            "log_id": log_id
+            "answer": answer, "input_tokens": input_tokens, 
+            "output_tokens": output_tokens, "total_cost": total_cost, "latency": latency, "log_id": log_id
         })

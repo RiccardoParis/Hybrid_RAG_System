@@ -6,6 +6,7 @@ import torch.optim as optim
 import random
 from transformers import DistilBertTokenizer, DistilBertForSequenceClassification
 from dotenv import load_dotenv
+from sqlalchemy import create_engine, text
 
 # Caricamento variabili d'ambiente
 load_dotenv()
@@ -118,6 +119,18 @@ def train_sft():
     model.save_pretrained(MODEL_NAME_OR_PATH)
     tokenizer.save_pretrained(MODEL_NAME_OR_PATH)
     print("[SFT Trainer] Modello salvato con successo. Il Router è pronto all'uso!")
+    
+    # 6. Aggiornamento dello stato nel Database per le query di warmup
+    try:
+        print("[SFT Trainer] Contrassegno dei log di warmup come processati nel database...")
+        postgres_uri = os.getenv("POSTGRES_URI")
+        if postgres_uri and "TUAPASSWORD" not in postgres_uri:
+            engine = create_engine(postgres_uri)
+            with engine.begin() as conn:
+                conn.execute(text("UPDATE rl_logs SET processed = TRUE WHERE processed = FALSE;"))
+            print("[SFT Trainer] Database aggiornato con successo.")
+    except Exception as e:
+        print(f"[SFT Trainer] Impossibile aggiornare il database: {e}")
 
 if __name__ == "__main__":
     train_sft()

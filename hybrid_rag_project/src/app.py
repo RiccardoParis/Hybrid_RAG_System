@@ -1,151 +1,170 @@
 import os
+import json
+import time
 import streamlit as st
 from router import app as langgraph_app
 from ingest import ingest_document_to_vector, ingest_graph_from_json, ingest_generic_sql
 from rl_logger import update_reward, update_log_final_metrics
 
-# Configurazione della pagina (opzionale ma raccomandata per Dashboard)
+# Page config
 st.set_page_config(page_title="Hybrid RAG Dashboard", page_icon="🤖", layout="centered")
 
-# --- SIDEBAR: Upload File ---
+# --- SIDEBAR: File Upload & Status ---
 with st.sidebar:
-    st.header("Gestione Dati")
-    st.write("Carica nuovi documenti per popolare i database.")
+    st.header("Data Management")
+    st.write("Upload new documents to populate the databases.")
     
-    vector_file = st.file_uploader("Documento Testo/PDF (Vector DB)", type=["txt", "pdf"])
-    graph_file = st.file_uploader("Grafo Strutturato (JSON)", type=["json"])
-    # NUOVO: Uploader per i dati SQL
-    sql_file = st.file_uploader("Dati Tabellari (JSON/CSV per SQL DB)", type=["json", "csv"])
-    table_name = st.text_input("Nome tabella SQL:", "nuova_tabella")
+    vector_files = st.file_uploader("Text/PDF Documents (Vector DB)", type=["txt", "pdf"], accept_multiple_files=True)
+    graph_file = st.file_uploader("Structured Graph (JSON)", type=["json"])
+    sql_files = st.file_uploader("Tabular Data (JSON/CSV for SQL DB)", type=["json", "csv"], accept_multiple_files=True)
     
-    if st.button("Elabora File"):
-        if vector_file or graph_file or sql_file:
+    if st.button("Process Files"):
+        if vector_files or graph_file or sql_files:
             os.makedirs("temp_uploads", exist_ok=True)
             
-            if vector_file:
-                temp_path = os.path.join("temp_uploads", vector_file.name)
-                with open(temp_path, "wb") as f:
-                    f.write(vector_file.getbuffer())
-                
-                with st.spinner(f"Elaborazione e ingestione di {vector_file.name}..."):
-                    try:
-                        ingest_document_to_vector(temp_path)
-                        st.success(f"{vector_file.name} elaborato con successo (Vector DB)!")
-                    except Exception as e:
-                        st.error(f"Errore {vector_file.name}: {e}")
+            # --- VECTOR DB BATCH PROCESSING ---
+            if vector_files:
+                from vector_retriever import VectorRetriever
+                all_docs = []
+                with st.spinner(f"Processing {len(vector_files)} documents for Vector DB..."):
+                    for vf in vector_files:
+                        temp_path = os.path.join("temp_uploads", vf.name)
+                        with open(temp_path, "wb") as f:
+                            f.write(vf.getbuffer())
+                        try:
+                            # Disabilitiamo la generazione metadati per ogni singolo file
+                            docs = ingest_document_to_vector(temp_path, generate_metadata=False)
+                            all_docs.extend(docs)
+                        except Exception as e:
+                            st.error(f"Error {vf.name}: {e}")
+                    
+                    # Generiamo i metadati una sola volta alla fine
+                    if all_docs:
+                        vr = VectorRetriever()
+                        vr.generate_and_save_metadata(all_docs)
+                        st.success(f"{len(vector_files)} documents successfully processed (Vector DB)!")
                         
+            # --- GRAPH DB PROCESSING ---
             if graph_file:
                 temp_path = os.path.join("temp_uploads", graph_file.name)
                 with open(temp_path, "wb") as f:
                     f.write(graph_file.getbuffer())
                 
-                with st.spinner(f"Lettura e ingestione di {graph_file.name}..."):
+                with st.spinner(f"Reading and ingesting {graph_file.name}..."):
                     try:
                         ingest_graph_from_json(temp_path)
-                        st.success(f"{graph_file.name} importato con successo (Graph DB)!")
+                        st.success(f"{graph_file.name} successfully imported (Graph DB)!")
                     except Exception as e:
-                        st.error(f"Errore {graph_file.name}: {e}")
-        # NUOVO: Logica per il caricamento SQL
-            if sql_file:
-                temp_path = os.path.join("temp_uploads", sql_file.name)
-                with open(temp_path, "wb") as f:
-                    f.write(sql_file.getbuffer())
-                
-                with st.spinner(f"Ingestione dei dati tabellari da {sql_file.name}..."):
-                    try:
-                        ingest_generic_sql(temp_path,table_name)
-                        st.success(f"{sql_file.name} inserito con successo (SQL DB)!")
-                    except Exception as e:
-                        st.error(f"Errore {sql_file.name}: {e}")
+                        st.error(f"Error {graph_file.name}: {e}")
+                        
+            # --- SQL DB BATCH PROCESSING ---
+            if sql_files:
+                with st.spinner(f"Ingesting {len(sql_files)} tabular files..."):
+                    for sf in sql_files:
+                        temp_path = os.path.join("temp_uploads", sf.name)
+                        with open(temp_path, "wb") as f:
+                            f.write(sf.getbuffer())
+                        
+                        # Inferiamo il nome della tabella dal nome del file
+                        inferred_table_name = os.path.splitext(sf.name)[0]
+                        try:
+                            ingest_generic_sql(temp_path, inferred_table_name)
+                            st.success(f"{sf.name} successfully inserted into table '{inferred_table_name}'!")
+                        except Exception as e:
+                            st.error(f"Error {sf.name}: {e}")
         else:
-            st.warning("Per favore, seleziona almeno un file prima di cliccare su 'Elabora File'.")
+            st.warning("Please select at least one file before clicking 'Process Files'.")
+            
+
 # -----------------------------
 
 st.title("Hybrid Multi-Source RAG - Dashboard")
 
-# Inizializzazione dello storico della chat nello stato della sessione
+# Chat history initialization
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Visualizzazione dei messaggi passati
+# Display past messages
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# Input dell'utente
-if prompt := st.chat_input("Fai una domanda (es. 'Qual è lo stato di ns/server-01?' oppure 'Cos'è l'xG?')..."):
-    # Aggiungi e mostra il messaggio dell'utente
+# User input (Modificato per il dominio medico)
+if prompt := st.chat_input("Ask a question (e.g., 'How many patients are enrolled in phase 3 trials?')..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Contenitore per la risposta dell'assistente
     with st.chat_message("assistant"):
         final_state = None
-        # Status per mostrare l'elaborazione in tempo reale
-        with st.status("Elaborazione in corso...", expanded=True) as status:
+        with st.status("Processing...", expanded=True) as status:
             try:
-                st.write("Avvio del router LangGraph...")
-                # Invocazione del grafo LangGraph con lo stato iniziale
+                st.write("Starting LangGraph router...")
+                start_time = time.time()
                 final_state = langgraph_app.invoke({"query": prompt})
+                latency = time.time() - start_time
                 
-                # Mostra i risultati intermedi estratti dallo stato
-                st.write("**Risultati Vector Search:**")
-                st.write(final_state.get("vector_results", "Nessun risultato."))
+                st.write("**Vector Search Results:**")
+                st.write(final_state.get("vector_results", "No results."))
                 
-                st.write("**Risultati Graph Search:**")
-                st.write(final_state.get("graph_result", "Nessun risultato."))
+                st.write("**Graph Search Results:**")
+                st.write(final_state.get("graph_result", "No results."))
                 
-                st.write("**Risultati SQL Search:**")
-                st.write(final_state.get("sql_context", "Nessun risultato."))
+                st.write("**SQL Search Results:**")
+                st.write(final_state.get("sql_context", "No results."))
                 
-                # Mostra i risultati del Lookup solo se ci sono stati ID rilevati
                 if final_state.get("ns_ids"):
-                    st.write(f"**ID Trovati ({len(final_state['ns_ids'])}):** {final_state['ns_ids']}")
-                    st.write("**Risultati Lookup:**")
-                    st.write(final_state.get("lookup_results", "Nessun risultato."))
+                    st.write(f"**IDs Found ({len(final_state['ns_ids'])}):** {final_state['ns_ids']}")
+                    st.write("**Lookup Results:**")
+                    st.write(final_state.get("lookup_results", "No results."))
                 else:
-                    st.write("**Lookup:** Non attivato (nessun ID trovato).")
+                    st.write("**Lookup:** Not triggered (no IDs found).")
                 
-                st.write("Avvio del Late Fusion Node in corso...")
+                st.write("Starting Late Fusion Node...")
                 
-                # Aggiorna lo status per segnalare il completamento
-                status.update(label="Elaborazione completata!", state="complete", expanded=False)
+                status.update(label="Processing complete!", state="complete", expanded=False)
                 
             except Exception as e:
-                status.update(label="Errore durante l'elaborazione", state="error", expanded=True)
-                st.error(f"Si è verificato un errore: {e}")
+                status.update(label="Error during processing", state="error", expanded=True)
+                st.error(f"An error occurred: {e}")
 
-        # Stampa la final_answer e salvala nello storico
         if final_state and "final_answer" in final_state:
             final_answer = final_state["final_answer"]
             st.markdown(final_answer)
             st.session_state.messages.append({"role": "assistant", "content": final_answer})
             
-            # --- SISTEMA DI FEEDBACK RL ---
             if "log_id" in final_state:
                 log_id = final_state["log_id"]
                 
-                # Salvataggio immediato della risposta generata dal grafo a DB
-                real_tokens = final_state.get("total_tokens", 0)
-                update_log_final_metrics(log_id, final_answer, real_tokens)
+                inp = final_state.get("input_tokens", 0)
+                out = final_state.get("output_tokens", 0)
+                cost = final_state.get("total_cost", 0.0)
                 
-                st.caption(f"⚡ Energy Footprint: {real_tokens} token consumati")
+                with st.expander("📊 Execution Metrics (Performance)"):
+                    st.caption(f"**Input Tokens:** {inp:,} | **Output Tokens:** {out:,} | **Total Cost:** ${cost:.6f} | **Latency:** {latency:.2f}s")
                 
-                # Callback per l'aggiornamento asincrono del feedback utente
+                update_log_final_metrics(
+                    log_id=log_id, 
+                    answer=final_state.get("final_answer", ""), 
+                    input_tokens=inp, 
+                    output_tokens=out, 
+                    total_cost=cost,
+                    latency=latency
+                )
+                
                 def handle_feedback(val):
                     update_reward(log_id, val)
-                    st.toast("Feedback registrato! Grazie per aver contribuito all'addestramento.", icon="✅")
+                    st.toast("Feedback recorded! Thank you for contributing to the training.", icon="✅")
                 
                 st.write("---")
-                st.write("*Valuta questa risposta per migliorare il routing del sistema:*")
+                st.write("*Rate this answer to improve system routing:*")
                 col1, col2, _ = st.columns([1, 1, 8])
                 with col1:
-                    st.button("👍 Utile", on_click=handle_feedback, args=(1,), key=f"up_{log_id}")
+                    st.button("👍 Helpful", on_click=handle_feedback, args=(1,), key=f"up_{log_id}")
                 with col2:
-                    st.button("👎 Non Utile", on_click=handle_feedback, args=(0,), key=f"down_{log_id}")
+                    st.button("👎 Not Helpful", on_click=handle_feedback, args=(0,), key=f"down_{log_id}")
                     
         elif final_state:
-            fallback = "Nessuna risposta finale generata dal sistema."
+            fallback = "No final answer generated by the system."
             st.markdown(fallback)
             st.session_state.messages.append({"role": "assistant", "content": fallback})

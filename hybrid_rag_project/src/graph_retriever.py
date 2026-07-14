@@ -5,46 +5,48 @@ from config import NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, GROQ_API_KEY
 
 CYPHER_PROMPT = PromptTemplate(
     input_variables=["schema", "question"],
-    template="""Sei un esperto di Knowledge Graph e database Neo4j. Il tuo compito è tradurre la domanda dell'utente in una query Cypher valida, basandoti ESCLUSIVAMENTE sullo schema dinamico del database fornito di seguito.
+    template="""You are an expert in Knowledge Graphs and Neo4j databases. Your task is to translate the user's question into a valid Cypher query, based EXCLUSIVELY on the dynamic database schema provided below.
 
-SCHEMA DEL GRAFO:
+GRAPH SCHEMA:
 {schema}
 
-REGOLE DI TRADUZIONE AGNOSTICHE E ROBUSTE:
+AGNOSTIC AND ROBUST TRANSLATION RULES:
 
-Uso dello Schema: Utilizza ESCLUSIVAMENTE le Node Labels, i Relationship Types e le Properties presenti nello schema. Non inventare o allucinare nomi di nodi. Se una label contiene spazi, usa i backtick (es. `Nome Label`).
+1. Schema Usage: Use EXCLUSIVELY the Node Labels, Relationship Types, and Properties present in the schema. Do not invent or hallucinate node names or relationship names. If a label contains spaces, use backticks (e.g., `Label Name`).
 
-Ricerca Fuzzy (Defensive Multi-Property Search): I database a grafo usano termini specifici, mentre gli utenti usano termini generici. Quando filtri per proprietà testuali, NON usare MAI la corrispondenza esatta (=). Usa SEMPRE la ricerca parziale case-insensitive espandendo i concetti con sinonimi o radici della parola. Poiché non puoi sapere a priori in quale proprietà (es. id, title, name) è salvato il valore cercato dall'utente, devi SEMPRE applicare l'operatore CONTAINS in OR su TUTTE le principali proprietà testuali del nodo indicate nello schema.
-Esempio di pattern obbligatorio: WHERE toLower(n.title) CONTAINS 'valore' OR toLower(n.id) CONTAINS 'valore'
+2. Fuzzy Search (Defensive Multi-Property Search): Graph databases use specific terms, while users use generic terms. When filtering by text properties, NEVER use exact match (=). ALWAYS use partial case-insensitive search. You MUST ALWAYS apply the CONTAINS operator with OR across ALL main text properties of the node indicated in the schema.
+Mandatory pattern example: WHERE toLower(n.title) CONTAINS 'value' OR toLower(n.id) CONTAINS 'value'
 
-Esplorazione Sicura: Se la domanda richiede di trovare elementi collegati, usa direzioni non orientate (es. MATCH (n)-[r]-(m)) per evitare di perdere risultati a causa della direzionalità degli archi.
+3. Safe Exploration & Single Match (CRITICAL): Keep your query to a single, simple MATCH statement. If the question asks to find connected elements, ALWAYS use undirected relationships (e.g., MATCH (n)-[r]-(m)). Crucially, when applying filters (WHERE) to multiple nodes in the MATCH pattern, ensure the filters are correctly associated with their respective node variables (e.g., WHERE toLower(n.name) CONTAINS 'value1' AND toLower(m.name) CONTAINS 'value2'). DO NOT use directional arrows (-> or <-).
 
-TRADUZIONE IN INGLESE OBBLIGATORIA: Poiché i dati nel database a grafo sono in lingua inglese, quando espandi i concetti dell'utente per la ricerca tramite CONTAINS, DEVI prima tradurre i concetti e i sinonimi in INGLESE.
-Esempio: Se l'utente chiede 'problemi cutanei', la clausola deve essere WHERE toLower(n.title) CONTAINS 'skin' OR toLower(n.title) CONTAINS 'rash' (non cercare 'pelle' o 'cutaneo').
+4. Synonym Expansion: You MUST expand the user's concepts using appropriate ENGLISH synonyms and medical terms for the CONTAINS search.
+Example: If the user asks for 'skin problems', the clause must be: WHERE toLower(n.title) CONTAINS 'skin' OR toLower(n.title) CONTAINS 'rash' OR toLower(n.title) CONTAINS 'dermatitis'.
 
-EVITARE DUPLICATI (DISTINCT): Usa SEMPRE la keyword DISTINCT nella clausola di ritorno per evitare esplosioni cartesiane dovute a relazioni multiple.
+5. Avoid Duplicates (DISTINCT): ALWAYS use the DISTINCT keyword in the return clause to avoid Cartesian explosions due to multiple relationships.
 
-OUTPUT PULITO: Non restituire mai l'intero nodo (es. vietato usare RETURN n). Restituisci solo la proprietà testuale rilevante.
-Esempio di ritorno obbligatorio: RETURN DISTINCT n.title oppure RETURN DISTINCT n.name.
+6. Clean Output: Never return the entire node (e.g., forbidden to use RETURN n). Return only the relevant text property.
+Mandatory return example: RETURN DISTINCT n.title or RETURN DISTINCT n.name.
 
-DIVIETO CORRISPONDENZA INLINE: È SEVERAMENTE VIETATO filtrare i nodi inserendo le proprietà direttamente tra le parentesi graffe (es. SBAGLIATO: MATCH (n:Gene {{id: 'EDN3'}})). Devi SEMPRE usare la clausola WHERE con toLower(n.nome_proprieta) CONTAINS 'valore'.
+7. FORBIDDEN INLINE MATCHING: It is STRICTLY FORBIDDEN to filter nodes by inserting properties directly inside curly braces (e.g., WRONG: MATCH (n:Gene {{id: 'EDN3'}})). You MUST ALWAYS use the WHERE clause with toLower(n.property_name) CONTAINS 'value'.
 
-ESTRAZIONE RELAZIONI (TRIPLE SEMANTICHE): Se la domanda dell'utente chiede esplicitamente di trovare le "relazioni" o i "collegamenti" tra nodi, non usare la ricerca a lunghezza variabile -[*]-. Mappa sempre l'arco con una variabile (es. -[r]-) e restituisci la tripla completa usando ESATTAMENTE questa sintassi di ritorno: RETURN DISTINCT n.title AS Partenza, type(r) AS Relazione, m.title AS Arrivo.
+8. Relation Extraction (Semantic Triples): If the user explicitly asks to find the "relationships" or "connections" between nodes, do not use variable-length search -[*]-. Always map the edge with a variable (e.g., -[r]-) and return the complete triple using EXACTLY this return syntax: RETURN DISTINCT n.title AS Source, type(r) AS Relationship, m.title AS Target.
 
-SINTASSI DELLE LABEL: NON usare MAI il carattere pipe (|) all'interno delle dichiarazioni dei nodi (es. VIETATO FARE (n:Disease|Gene)). Specifica un singolo nodo di partenza con una singola label, oppure usa un nodo generico (n) e applica i filtri nella clausola WHERE con la funzione labels(n).
+9. Label Syntax: NEVER use the pipe character (|) inside node declarations (e.g., FORBIDDEN: (n:Disease|Gene)). Specify a single starting node with a single label, or use a generic node (n) and apply filters in the WHERE clause using the labels(n) function.
 
-DIVIETO TYPE() SUI NODI: In Cypher, non usare MAI la funzione type() su una variabile che rappresenta un nodo (es. type(n) produrrà un errore fatale). Se hai bisogno di restituire il tipo/categoria di un nodo, DEVI usare la funzione labels() (es. labels(n)). Usa type() ESCLUSIVAMENTE per le relazioni (es. type(r)).
+10. FORBIDDEN type() ON NODES: In Cypher, NEVER use the type() function on a variable representing a node (it will produce a fatal error). If you need to return the type/category of a node, you MUST use the labels() function (e.g., labels(n)). Use type() EXCLUSIVELY for relationships (e.g., type(r)).
 
-VINCOLI DI OUTPUT ASSOLUTI:
-OUTPUT FORMAT: Devi restituire ESCLUSIVAMENTE il codice Cypher crudo. È severamente vietato aggiungere spiegazioni, premesse, pensieri o testo discorsivo prima o dopo la query. Restituisci solo ed esclusivamente le righe di codice Cypher.
-ZERO TESTO DISCORSIVO: Restituisci ESCLUSIVAMENTE la query Cypher nuda e cruda. Non aggiungere saluti, spiegazioni, commenti o testo come 'Ecco la query' o 'Oppure potresti usare'.
-SINGOLA QUERY: Genera esattamente UNA (1) sola query Cypher valida che sia la migliore interpretazione della domanda. NON proporre varianti o opzioni alternative.
-NESSUN MARKDOWN: Non racchiudere la query in blocchi di codice (es. non usare ```cypher ... ```). La risposta deve iniziare direttamente con MATCH o CALL.
+ABSOLUTE OUTPUT CONSTRAINTS:
+- OUTPUT FORMAT: You must return EXCLUSIVELY the raw Cypher code. It is strictly forbidden to add explanations, premises, thoughts, or conversational text before or after the query. Return only the Cypher code lines.
+- ZERO CONVERSATIONAL TEXT: Do not add greetings, comments, or text like 'Here is the query'.
+- SINGLE QUERY: Generate exactly ONE (1) valid Cypher query that is the best interpretation of the question. DO NOT propose variants or alternative options.
+- NO MARKDOWN: Do not enclose the query in code blocks (e.g., do not use ```cypher ... ```). The response must start directly with MATCH or CALL.
 
-Domanda dell'utente: {question}
-Query Cypher:
+User Question: {question}
+Cypher Query:
 """
 )
+
+
 
 QA_PROMPT = PromptTemplate(
     input_variables=["context", "question"],

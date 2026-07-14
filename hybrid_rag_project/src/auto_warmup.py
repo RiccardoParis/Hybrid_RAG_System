@@ -29,11 +29,11 @@ def generate_synthetic_queries():
     all_queries = []
     
     category_instructions = {
-        "no_retrieval": "domande di conversazione generale, saluti, questioni puramente etiche o completamente fuori dominio.",
-        "vector": "Domande discorsive, ricche di termini medici complessi, che chiedono spiegazioni, meccanismi d'azione o riassunti clinici (es. 'Qual è la farmacocinetica esatta di...', 'Illustra come viene metabolizzato...'). NON menzionare mai tabelle, grafi o conteggi.",
-        "graph": "Domande che esplorano esplicitamente i legami, i percorsi e le interazioni dirette tra concetti (es. 'Quali sono tutte le interazioni note tra X e Y?', 'Mostrami la catena di effetti collaterali collegati a...'). Mimetizza la domanda in un linguaggio naturale, senza usare la parola 'grafo' o 'nodi'.",
-        "sql": "Domande puramente quantitative ed estrattive (es. 'Quantifica il totale dei soggetti sottoposti al test NCT...', 'Fornisci l'elenco esatto delle aziende coinvolte nello studio...'). È SEVERAMENTE VIETATO usare la parola 'tabella', 'database' o 'colonna'. La domanda deve sembrare posta da un medico.",
-        "multi": "Domande molto sfaccettate in cui l'utente richiede esplicitamente di calcolare/estrarre dei numeri E contemporaneamente spiegare i meccanismi biologici sottostanti (es. 'Quanti trial di fase 3 esistono per l'Aspirina, e quali sono i meccanismi molecolari con cui agisce sui recettori?')."
+        "no_retrieval": "General conversation questions, greetings, purely ethical questions, or completely out-of-domain issues.",
+        "vector": "Discursive questions, rich in complex medical terms, asking for explanations, mechanisms of action, or clinical summaries (e.g., 'What is the exact pharmacokinetics of...', 'Illustrate how it is metabolized...'). NEVER mention tables, graphs, or counts.",
+        "graph": "Questions that explicitly explore links, pathways, and direct interactions between concepts (e.g., 'What are all the known interactions between X and Y?', 'Show me the chain of side effects linked to...'). Disguise the question in natural language, without using the word 'graph' or 'nodes'.",
+        "sql": "Purely quantitative and extractive questions (e.g., 'Quantify the total number of subjects undergoing the NCT test...', 'Provide the exact list of companies involved in the study...'). It is STRICTLY FORBIDDEN to use the word 'table', 'database', or 'column'. The question must sound like it was asked by a medical doctor or researcher.",
+        "multi": "Highly multifaceted questions where the user explicitly asks to calculate/extract numbers AND simultaneously explain the underlying biological mechanisms (e.g., 'How many phase 3 trials exist for Aspirin, and what are the molecular mechanisms by which it acts on receptors?')."
     }
     
     for category in categories:
@@ -42,21 +42,21 @@ def generate_synthetic_queries():
         instruction = category_instructions.get(category, "")
         
         prompt = ChatPromptTemplate.from_messages([
-            ("system", """Sei un creatore di dataset per l'addestramento di un sistema di Information Retrieval medico.
-Il tuo compito è generare 50 domande simulate in lingua italiana basandoti rigorosamente sugli schemi forniti.
+            ("system", """You are a dataset creator for training a medical Information Retrieval system.
+Your task is to generate 50 simulated questions IN ENGLISH strictly based on the provided schemas.
 
-Devi generare le domande ESCLUSIVAMENTE per la categoria: '{category}'.
-Descrizione della categoria: {instruction}
+You must generate the questions EXCLUSIVELY for the category: '{category}'.
+Category description: {instruction}
 
-OUTPUT FORMAT OBLIGATORIO:
-Devi restituire ESCLUSIVAMENTE un singolo array JSON contenente le 50 domande. Non usare markdown (vietato ```json). Inizia con [ e finisci con ].
-Esempio:
+MANDATORY OUTPUT FORMAT:
+You must return EXCLUSIVELY a single JSON array containing the 50 questions. Do not use markdown (forbidden ```json). Start with [ and end with ].
+Example:
 [
-  {{"query": "Testo della domanda 1", "expected_route": "{category}"}},
-  {{"query": "Testo della domanda 2", "expected_route": "{category}"}}
+  {{"query": "Question text 1", "expected_route": "{category}"}},
+  {{"query": "Question text 2", "expected_route": "{category}"}}
 ]
 
-SCHEMI A DISPOSIZIONE:
+AVAILABLE SCHEMAS:
 [VECTOR DB]
 {vector_meta}
 
@@ -66,7 +66,7 @@ SCHEMI A DISPOSIZIONE:
 [SQL DB]
 {sql_meta}
 """),
-            ("user", "Genera il JSON con 50 domande per la categoria '{category}'.")
+            ("user", "Generate the JSON with 50 questions IN ENGLISH for the category '{category}'.")
         ])
         
         chain = prompt | llm

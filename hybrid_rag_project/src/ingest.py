@@ -8,8 +8,9 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_qdrant import QdrantVectorStore
 from neo4j import GraphDatabase
+from vector_retriever import VectorRetriever
 
-def ingest_document_to_vector(file_path: str):
+def ingest_document_to_vector(file_path: str, generate_metadata: bool = True):
     """
     Carica un file (.txt o .pdf), lo splitta in chunk, ne calcola gli embeddings
     con HuggingFaceEmbeddings e lo salva in Qdrant (collection 'hybrid_rag').
@@ -48,6 +49,14 @@ def ingest_document_to_vector(file_path: str):
         timeout=120  # Permette inserimenti multipli successivi
     )
     print(f"[{file_path}] Ingestione su Qdrant completata con successo.")
+    
+    if generate_metadata:
+        print(f"[{file_path}] Generazione automatica dei metadati vettoriali tramite LLM...")
+        vr = VectorRetriever()
+        vr.generate_and_save_metadata(documents)
+        print(f"[{file_path}] Metadati aggiornati con successo.")
+        
+    return documents
 
 
 def ingest_graph_from_json(json_file_path: str):

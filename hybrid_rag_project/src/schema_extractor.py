@@ -1,5 +1,5 @@
 import os
-from functools import lru_cache
+import json
 from sqlalchemy import create_engine, inspect
 from neo4j import GraphDatabase
 from dotenv import load_dotenv
@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 load_dotenv()
 from config import NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD
 
-@lru_cache(maxsize=1)
 def _extract_sql_raw():
     """Estrae i dati raw (tabelle, colonne e tipi) da PostgreSQL."""
     postgres_uri = os.getenv("POSTGRES_URI", "")
@@ -20,8 +19,14 @@ def _extract_sql_raw():
         engine = create_engine(postgres_uri)
         inspector = inspect(engine)
         tables = inspector.get_table_names()
+
+        # Lista delle tabelle da nascondere all'LLM
+        exluded_tables = ['rl_logs', 'alembic_version']
         
         for table in tables:
+            if table in exluded_tables:
+                continue
+            
             columns = inspector.get_columns(table)
             tables_info.append({"name": table, "columns": columns})
         return tables_info
@@ -29,7 +34,6 @@ def _extract_sql_raw():
         print(f"[Schema Extractor] Errore connessione SQL: {e}")
         return []
 
-@lru_cache(maxsize=1)
 def _extract_graph_raw():
     """Estrae i dati raw (labels, relazioni e proprietà) da Neo4j."""
     try:
@@ -68,24 +72,41 @@ def _extract_graph_raw():
         print(f"[Schema Extractor] Errore connessione Graph: {e}")
         return {"labels": [], "relationships": [], "properties": {}}
 
-@lru_cache(maxsize=1)
+def _extract_vector_raw():
+    """Legge i metadati del VectorDB generati dinamicamente durante l'ingestione."""
+    project_root = os.path.dirname(os.path.dirname(__file__))
+    meta_path = os.path.join(project_root, "data", "vector_metadata.json")
+    
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"[Schema Extractor] Errore lettura vector_metadata.json: {e}")
+            
+    # Fallback di sicurezza
+    return {
+        "compact": "UNSTRUCTURED TEXT: Generic documents.",
+        "detailed": "Vector documents without automatic profiling."
+    }
+
 def get_compact_schemas():
     """Restituisce un dizionario di schemi sintetici, ideale per il RLBanditRouter."""
     print("[Schema Extractor] Costruzione schemi COMPATTI in corso...")
     sql_raw = _extract_sql_raw()
     graph_raw = _extract_graph_raw()
     
-    # Compatto SQL: Enfasi sulle quantità + elenco dei nomi delle tabelle
-    sql_tables = ", ".join([t["name"] for t in sql_raw]) if sql_raw else "Database SQL vuoto o offline."
-    sql_compact = f"DATI TABELLARI QUANTITATIVI: Conteggi, somme, id (NCT...), fasi, pazienti arruolati, tabelle: {sql_tables}"
+    # Compatto SQL
+    sql_tables = ", ".join([t["name"] for t in sql_raw]) if sql_raw else "Empty or offline SQL Database."
+    sql_compact = f"QUANTITATIVE TABULAR DATA: Counts, sums, ids (NCT...), phases, enrolled patients, tables: {sql_tables}"
     
-    # Compatto Graph: Enfasi sulle entità collegate + elenco di nodi e relazioni
-    g_labels = ", ".join(graph_raw["labels"]) if graph_raw["labels"] else "Nessun nodo"
-    g_rels = ", ".join(graph_raw["relationships"]) if graph_raw["relationships"] else "Nessuna relazione"
-    graph_compact = f"RETI SEMANTICHE: Triple, percorsi, relazioni dirette tra Nodi: {g_labels} e Archi: {g_rels}"
+    # Compatto Graph
+    g_labels = ", ".join(graph_raw["labels"]) if graph_raw["labels"] else "No nodes"
+    g_rels = ", ".join(graph_raw["relationships"]) if graph_raw["relationships"] else "No relationships"
+    graph_compact = f"SEMANTIC NETWORKS: Triples, paths, direct relationships between Nodes: {g_labels} and Edges: {g_rels}"
     
     # Vector DB (Prescrittivo)
-    vector_compact = "TESTI NON STRUTTURATI: Abstract, meccanismi d'azione, spiegazioni prolisse, letteratura medica da PubMed."
+    vector_compact = _extract_vector_raw()["compact"]
     
     return {
         "vector": vector_compact,
@@ -93,35 +114,34 @@ def get_compact_schemas():
         "sql": sql_compact
     }
 
-@lru_cache(maxsize=1)
 def get_detailed_schemas():
     """Restituisce un dizionario di schemi completi, ideale per i generatori Cypher/SQL."""
     print("[Schema Extractor] Costruzione schemi DETTAGLIATI in corso...")
     sql_raw = _extract_sql_raw()
     graph_raw = _extract_graph_raw()
     
-    # Dettagliato SQL: Nome tabella + Nome Colonne e Tipo Dato
+    # Dettagliato SQL
     sql_parts = []
     for t in sql_raw:
         cols_str = ", ".join([f"{c['name']} ({c['type']})" for c in t["columns"]])
-        sql_parts.append(f"Tabella: {t['name']} | Colonne: {cols_str}")
-    sql_detailed = "\n".join(sql_parts) if sql_parts else "Database SQL vuoto o offline."
+        sql_parts.append(f"Table: {t['name']} | Columns: {cols_str}")
+    sql_detailed = "\n".join(sql_parts) if sql_parts else "Empty or offline SQL Database."
     
-    # Dettagliato Graph: Nodi con Proprietà e Tipi di Relazioni
+    # Dettagliato Graph
     graph_parts = []
     if graph_raw["properties"]:
         for label, props in graph_raw["properties"].items():
-            graph_parts.append(f"Nodo '{label}' con proprietà: {', '.join(props)}")
+            graph_parts.append(f"Node '{label}' with properties: {', '.join(props)}")
     else:
-        g_labels = ", ".join(graph_raw["labels"]) if graph_raw["labels"] else "Nessun nodo"
-        graph_parts.append(f"Nodi: {g_labels}")
+        g_labels = ", ".join(graph_raw["labels"]) if graph_raw["labels"] else "No nodes"
+        graph_parts.append(f"Nodes: {g_labels}")
         
-    g_rels = ", ".join(graph_raw["relationships"]) if graph_raw["relationships"] else "Nessuna relazione"
-    graph_parts.append(f"\nRelazioni disponibili: {g_rels}")
+    g_rels = ", ".join(graph_raw["relationships"]) if graph_raw["relationships"] else "No relationships"
+    graph_parts.append(f"\nAvailable relationships: {g_rels}")
     graph_detailed = "\n".join(graph_parts)
     
     # Vector DB (Dettagliato)
-    vector_detailed = "Documenti vettoriali: Abstract di letteratura medica, articoli scientifici da PubMed, trial clinici e documenti medici destrutturati."
+    vector_detailed = _extract_vector_raw()["detailed"]
     
     return {
         "vector": vector_detailed,
