@@ -15,7 +15,7 @@ graphs_dir = os.path.join(base_dir, "data", "graphs")
 
 def fetch_pubmed_abstracts():
     # Creiamo la cartella di output per i file di testo
-    output_dir = "../data/texts"
+    output_dir = "../../data/texts"
     os.makedirs(output_dir, exist_ok=True)
 
     target_drugs = [
@@ -24,8 +24,11 @@ def fetch_pubmed_abstracts():
         "Entacapone", "Clonazepam", "Rivastigmine", "Galantamine", "Diphenhydramine", 
         "Carbidopa", "Pergolide", "Amantadine", "Cabergoline", "Modafinil", "L-DOPA", 
         "Rotigotine", "Procyclidine", "Donepezil", "Ramelteon", "Pramipexole", 
-        "Biperiden", "Haloperidol", "Tolcapone", "Hyoscyamine", "Quetiapine", "Selegiline"
+        "Biperiden", "Haloperidol", "Tolcapone", "Hyoscyamine", "Quetiapine", "Selegiline",
+        "Fluorouracil", "Vismodegib", "Imiquimod", "Temozolomide", "Dacarbazine",
+        "Bleomycin", "Docetaxel", "Vemurafenib", "Dactinomycin" 
     ]
+
 
     # Limite di paper per farmaco (50 è un ottimo numero per avere volume senza bloccare il PC locale)
     MAX_PAPERS_PER_DRUG = 50

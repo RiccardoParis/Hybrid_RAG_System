@@ -15,7 +15,7 @@ graphs_dir = os.path.join(base_dir, "data", "graphs")
 
 def fetch_trials_to_json():
     # Definisce il percorso di output, assicurandosi che la cartella esista
-    output_file = "../data/tables/clinical_trials_data.json"
+    output_file = "../../data/tables/clinical_trials_data.json"
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
     # I 32 farmaci esatti ricavati dallo script del Grafo
@@ -25,8 +25,11 @@ def fetch_trials_to_json():
         "Entacapone", "Clonazepam", "Rivastigmine", "Galantamine", "Diphenhydramine", 
         "Carbidopa", "Pergolide", "Amantadine", "Cabergoline", "Modafinil", "L-DOPA", 
         "Rotigotine", "Procyclidine", "Donepezil", "Ramelteon", "Pramipexole", 
-        "Biperiden", "Haloperidol", "Tolcapone", "Hyoscyamine", "Quetiapine", "Selegiline"
+        "Biperiden", "Haloperidol", "Tolcapone", "Hyoscyamine", "Quetiapine", "Selegiline",
+        "Fluorouracil", "Vismodegib", "Imiquimod", "Temozolomide", "Dacarbazine",
+        "Bleomycin", "Docetaxel", "Vemurafenib", "Dactinomycin" 
     ]
+
 
     base_url = "https://clinicaltrials.gov/api/v2/studies"
     all_studies = []

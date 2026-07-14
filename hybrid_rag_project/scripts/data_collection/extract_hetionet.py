@@ -13,8 +13,9 @@ texts_dir = os.path.join(base_dir, "data", "texts")
 graphs_dir = os.path.join(base_dir, "data", "graphs")
 
 def extract_neurology_subgraph():
-    hetionet_file = "../hetionet/hetionet-v1.0.json.bz2"
-    output_file = "../data/graphs/neurology_graph.json"
+    hetionet_file = "../../hetionet/hetionet-v1.0.json.bz2"
+    output_file = "../../data/graphs/neurology_graph.json"
+    
 
     print("1. Lettura del file Hetionet compresso...")
     try:
@@ -35,7 +36,7 @@ def extract_neurology_subgraph():
         if n['kind'] == 'Disease':
             # Cerchiamo le parole chiave in minuscolo per evitare problemi di apostrofi o maiuscole
             name_lower = n['name'].lower()
-            if 'alzheimer' in name_lower or 'parkinson' in name_lower:
+            if 'alzheimer' in name_lower or 'parkinson' in name_lower or 'skin cancer' in  name_lower:
                 root_ids.add(n['identifier'])
                 print(f" -> Trovata malattia: {n['name']} ({n['identifier']})")
 
