@@ -139,6 +139,23 @@ def ingest_generic_sql(file_path: str, table_name: str):
     
     print(f"[SQL Ingest] Tabella '{table_name}' aggiornata con {len(df)} righe.")
 
+def batch_ingest_vectors(file_paths: list):
+    """Gestisce l'ingestione di più file e rigenera i metadati vettoriali una sola volta alla fine."""
+    all_docs = []
+    
+    for path in file_paths:
+        # Riutilizziamo la tua funzione base per ogni singolo file
+        docs = ingest_document_to_vector(path, generate_metadata=False)
+        if docs:
+            all_docs.extend(docs)
+            
+    # Alla fine del ciclo, aggiorniamo i metadati in un solo colpo
+    if all_docs:
+        vr = VectorRetriever()
+        vr.generate_and_save_metadata(all_docs)
+        
+    return len(file_paths)
+
 if __name__ == "__main__":
     print("Modulo di ingestione dinamica. Utilizzare le funzioni:")
     print("- ingest_document_to_vector('percorso/file.pdf')")

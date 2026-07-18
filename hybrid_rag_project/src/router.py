@@ -38,6 +38,7 @@ class GroqTokenCallback(BaseCallbackHandler):
 # Import dei retriever e moduli di sistema
 from vector_retriever import VectorRetriever
 from graph_retriever import GraphRetriever
+from sql_retriever import SQLRetriever
 from rl_router import RLBanditRouter
 from schema_extractor import get_compact_schemas, get_detailed_schemas
 from rl_logger import log_interaction
@@ -64,74 +65,8 @@ class AgentState(TypedDict):
 # 2. Inizializzazioni
 vector_retriever = VectorRetriever(collection_name="hybrid_rag", model_name="intfloat/multilingual-e5-base")
 graph_retriever = GraphRetriever()
+sql_retriever=SQLRetriever()
 bandit_router = RLBanditRouter()
-
-# Inizializzazione SQL DB (invariata rispetto al tuo codice originale)
-import os
-from dotenv import load_dotenv
-from langchain_community.utilities import SQLDatabase
-from langchain_community.tools import QuerySQLDatabaseTool
-from langchain_classic.chains import create_sql_query_chain
-
-load_dotenv()
-postgres_uri = os.getenv("POSTGRES_URI", "")
-if postgres_uri and "TUAPASSWORD" not in postgres_uri:
-    db = SQLDatabase.from_uri(postgres_uri, sample_rows_in_table_info=0)
-    llm_sql = ChatGroq(model="llama-3.1-8b-instant", temperature=0)
-    from langchain_core.prompts import PromptTemplate
-    custom_sql_template = PromptTemplate.from_template(
-"""You are a Data Extractor expert in SQL (dialect {dialect}).
-Your SOLE objective is to write the SQL query to extract the necessary data.
-
-STRICT RULES (TAG PARADIGM):
-1. DELEGATION OF RESPONSIBILITY:
-   - If the user asks for a calculation, aggregation, or statistical operation (e.g., "how many", "average", "total", "group by"), YOU MUST use native SQL aggregation functions (COUNT, SUM, AVG, GROUP BY). The database is designed for fast math.
-   - If the user asks for semantic reasoning over text (e.g., "summarize the reviews", "what do the reports say"), DO NOT use aggregations. Extract the raw text rows (e.g., SELECT text_field FROM...) so the downstream LLM can read them.
-2. FIELDS: Always extract descriptive fields relevant to the question.
-3. TEXT MATCHING: ALWAYS use ILIKE '%Name%' when filtering text strings. If you filter by ANY text field (e.g., status, phase, name, title), NEVER use exact string matching (=). You MUST ALWAYS use the ILIKE operator with wildcards (e.g., field_name ILIKE '%value%'). This ensures robustness against variations in capitalization and formatting.
-4. AVOID HALLUCINATED FILTERS: DO NOT invent WHERE clauses. If the user simply asks to aggregate or group by a column (e.g., 'grouped by phase', 'by status'), you MUST NOT add a WHERE clause for that column. Just use the GROUP BY clause.
-5. ID MATCHING: If the user provides an ID like 'NCT...', use WHERE studies.nct_id = 'NCT...'.
-6. LIMIT: If extracting raw rows, always limit the query to a maximum of {top_k} results.
-7. SYNTAX GUARDRAIL: Use EXACTLY the table names declared in the schema. Do not invent undeclared aliases in the FROM clause.
-
-OUTPUT:
-Return EXCLUSIVELY the valid SQL query. No explanations, no introductions, no markdown. Just the code.
-
-Available tables:
-{table_info}
-
-Question: {input}
-SQLQuery:"""
-)
-    execute_query = QuerySQLDatabaseTool(db=db)
-    write_query = create_sql_query_chain(llm_sql, db, prompt=custom_sql_template)
-    
-    def clean_sql_output(text: str) -> str:
-        print(f"\n[SQL DEBUG] Output grezzo LLM:\n{text}\n")
-        
-        match = re.search(r"```sql(.*?)```", text, re.DOTALL | re.IGNORECASE)
-        if match: 
-            sql = match.group(1).strip()
-            print(f"[SQL DEBUG] Query pulita in esecuzione:\n{sql}\n")
-            return sql
-            
-        match = re.search(r"```(.*?)```", text, re.DOTALL)
-        if match: 
-            sql = match.group(1).strip()
-            print(f"[SQL DEBUG] Query pulita in esecuzione:\n{sql}\n")
-            return sql
-            
-        if "SQLQuery:" in text: 
-            sql = text.split("SQLQuery:")[1].strip()
-            print(f"[SQL DEBUG] Query pulita in esecuzione:\n{sql}\n")
-            return sql
-            
-        print(f"[SQL DEBUG] Query pulita in esecuzione (fallback):\n{text.strip()}\n")
-        return text.strip()
-        
-    sql_chain = write_query | clean_sql_output | execute_query
-else:
-    sql_chain = None
 
 import json
 
@@ -263,22 +198,20 @@ def graph_search_node(state: AgentState):
     return {"graph_result": result, "ns_ids": found_ids, "input_tokens": inp, "output_tokens": out, "total_cost": cost}
 
 def sql_search_node(state: AgentState):
-    """Esegue la ricerca sul database SQL."""
+    """Executes the search on the SQL database using the isolated module."""
     cb = GroqTokenCallback(model_name="llama-3.1-8b-instant")
     query = state.get("sql_query") or state["query"]
-    print(f"[Router] Esecuzione SQL Search per: {query}")
+    print(f"[Router] Executing SQL Search for: {query}")
+    
     try:
-        if sql_chain:
-            result = sql_chain.invoke({"question": query}, config={"callbacks": [cb]})
-            inp = cb.input_tokens
-            out = cb.output_tokens
-            cost = cb.total_cost
-        else:
-            result = "Database SQL non configurato o credenziali assenti."
-            inp, out, cost = 0, 0, 0.0
+        result = sql_retriever.ask(query, callbacks=[cb])
+        inp = cb.input_tokens
+        out = cb.output_tokens
+        cost = cb.total_cost
+        
     except Exception as e:
-        print(f"[Router] Errore SQL Search: {e}")
-        result = f"Errore SQL Search: {e}"
+        print(f"[Router] SQL Search Error: {e}")
+        result = f"SQL Search Error: {e}"
         inp, out, cost = 0, 0, 0.0
         
     return {"sql_context": result, "input_tokens": inp, "output_tokens": out, "total_cost": cost}
