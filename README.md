@@ -46,11 +46,14 @@ Unlike standard linear RAG pipelines, this system implements a **Reinforcement L
 
 ```
 
-🚀 Setup & Installation1. Clone the repository and install dependencies:Bashgit clone [https://github.com/yourusername/Hybrid_RAG_System.git](https://github.com/yourusername/Hybrid_RAG_System.git)
+🚀 Setup & Installation
+1. Clone the repository and install dependencies:
+```Bash
+git clone [https://github.com/yourusername/Hybrid_RAG_System.git](https://github.com/yourusername/Hybrid_RAG_System.git)
 cd Hybrid_RAG_System/hybrid_rag_project
 pip install -r requirements.txt
-
-2. Environment Variables:Create a .env file in the hybrid_rag_project directory and configure your API keys and database URIs:Ini, TOMLGROQ_API_KEY=your_groq_api_key
+```
+4. Environment Variables:Create a .env file in the hybrid_rag_project directory and configure your API keys and database URIs:Ini, TOMLGROQ_API_KEY=your_groq_api_key
 POSTGRES_URI=postgresql://user:password@localhost:5432/medical_db
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USERNAME=neo4j
@@ -58,7 +61,7 @@ NEO4J_PASSWORD=your_password
 QDRANT_URL=http://localhost:6333
 QDRANT_API_KEY=your_qdrant_api_key
 
-4. Launch Databases:Spin up the local PostgreSQL, Neo4j, and Qdrant instances using Docker:Bashdocker-compose up -d
+5. Launch Databases:Spin up the local PostgreSQL, Neo4j, and Qdrant instances using Docker:Bashdocker-compose up -d
 🗄️ Data Collection & Database PopulationTo replicate the academic environment, you must download the benchmark datasets and populate the three databases.
 
 Step 1: Download External DatasetsHetionet (For Neo4j): Download the JSON version of the Hetionet biological network from the official repository: Hetionet v1.0 JSON. Save it in data/.Spider Dataset (For PostgreSQL/Evaluation): Download the Spider dataset (a large-scale complex text-to-SQL dataset) from Yale Lily: Spider Dataset. Extract it in data/spider/.
