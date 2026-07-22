@@ -1,0 +1,402 @@
+[
+  {
+    "query": "Hi! How's everything going today?",
+    "expected_route": "no_retrieval"
+  },
+  {
+    "query": "Can you explain what 'double-blind' means in a clinical trial, generally speaking?",
+    "expected_route": "no_retrieval"
+  },
+  {
+    "query": "Thank you, that answer was exactly what I needed.",
+    "expected_route": "no_retrieval"
+  },
+  {
+    "query": "Just curious, what's the basic difference between a gene and a protein?",
+    "expected_route": "no_retrieval"
+  },
+  {
+    "query": "What do researchers usually mean when they refer to a drug's 'phase' of testing?",
+    "expected_route": "no_retrieval"
+  },
+  {
+    "query": "What kinds of questions are you best suited to help me with?",
+    "expected_route": "no_retrieval"
+  },
+  {
+    "query": "Could you define 'NCT number' in general terms?",
+    "expected_route": "no_retrieval"
+  },
+  {
+    "query": "Good morning! Hope you're ready for some questions today.",
+    "expected_route": "no_retrieval"
+  },
+  {
+    "query": "What's the general difference between an observational study and an interventional one?",
+    "expected_route": "no_retrieval"
+  },
+  {
+    "query": "Got any good jokes about scientists or pharmacists?",
+    "expected_route": "no_retrieval"
+  },
+  {
+    "query": "In plain language, what does 'enrollment' mean in the context of a study?",
+    "expected_route": "no_retrieval"
+  },
+  {
+    "query": "How would you explain a placebo to someone with zero medical background?",
+    "expected_route": "no_retrieval"
+  },
+  {
+    "query": "What does the word 'neurodegenerative' generally describe?",
+    "expected_route": "no_retrieval"
+  },
+  {
+    "query": "Appreciate all the help today, take care!",
+    "expected_route": "no_retrieval"
+  },
+  {
+    "query": "What's typically the difference between a 'syndrome' and a 'disease'?",
+    "expected_route": "no_retrieval"
+  },
+  {
+    "query": "Broadly speaking, what role does a sponsor play in clinical research?",
+    "expected_route": "no_retrieval"
+  },
+  {
+    "query": "What does 'pharmacokinetics' mean as a general concept?",
+    "expected_route": "no_retrieval"
+  },
+  {
+    "query": "What's the standard textbook definition of a randomized controlled trial?",
+    "expected_route": "no_retrieval"
+  },
+  {
+    "query": "Nice talking with you today, anything else you'd suggest I ask?",
+    "expected_route": "no_retrieval"
+  },
+  {
+    "query": "Is there a simple way to remember the difference between a drug agonist and an antagonist?",
+    "expected_route": "no_retrieval"
+  },
+  {
+    "query": "What is the mechanism of action of Rasagiline in the treatment of Parkinson's disease?",
+    "expected_route": "vector"
+  },
+  {
+    "query": "How does Rivastigmine influence acetylcholine levels in patients with Alzheimer's disease?",
+    "expected_route": "vector"
+  },
+  {
+    "query": "Walk me through the pharmacokinetic profile of Ropinirole in elderly patients with Parkinson's disease.",
+    "expected_route": "vector"
+  },
+  {
+    "query": "What biological processes are thought to drive the progression of amyotrophic lateral sclerosis?",
+    "expected_route": "vector"
+  },
+  {
+    "query": "How does Memantine's antagonism of NMDA receptors help protect neurons in Alzheimer's disease?",
+    "expected_route": "vector"
+  },
+  {
+    "query": "Explain how Vismodegib inhibits Hedgehog pathway signaling in tumor cells.",
+    "expected_route": "vector"
+  },
+  {
+    "query": "What is the pharmacological rationale for combining Carbidopa with L-DOPA in Parkinson's disease treatment?",
+    "expected_route": "vector"
+  },
+  {
+    "query": "Is there evidence that chronic Gabapentin use alters nerve signaling in restless legs syndrome?",
+    "expected_route": "vector"
+  },
+  {
+    "query": "Describe how Fluorouracil interferes with DNA and RNA synthesis in salivary gland cancer cells.",
+    "expected_route": "vector"
+  },
+  {
+    "query": "What is currently understood about alpha-synuclein aggregation in the pathology of Parkinson's disease?",
+    "expected_route": "vector"
+  },
+  {
+    "query": "How does Docetaxel disrupt microtubule dynamics during cell division in vascular cancer treatment?",
+    "expected_route": "vector"
+  },
+  {
+    "query": "How does Haloperidol's dopamine receptor blockade help manage tics in Gilles de la Tourette syndrome?",
+    "expected_route": "vector"
+  },
+  {
+    "query": "Describe the proposed neuroprotective mechanisms attributed to Selegiline.",
+    "expected_route": "vector"
+  },
+  {
+    "query": "What is the pharmacological basis for prescribing Clonazepam in restless legs syndrome?",
+    "expected_route": "vector"
+  },
+  {
+    "query": "How does Bromocriptine's dopamine agonist activity compare mechanistically to Pergolide?",
+    "expected_route": "vector"
+  },
+  {
+    "query": "What's known about the cellular mechanisms behind Dacarbazine's anti-tumor activity in melanoma?",
+    "expected_route": "vector"
+  },
+  {
+    "query": "Describe how Entacapone inhibits catechol-O-methyltransferase and prolongs L-DOPA availability.",
+    "expected_route": "vector"
+  },
+  {
+    "query": "What has research revealed about the mechanisms of prion propagation in Creutzfeldt-Jakob disease?",
+    "expected_route": "vector"
+  },
+  {
+    "query": "How does Vemurafenib selectively inhibit BRAF-mutant melanoma cells?",
+    "expected_route": "vector"
+  },
+  {
+    "query": "What has been described about the molecular drivers of disease progression in ocular cancer?",
+    "expected_route": "vector"
+  },
+  {
+    "query": "Which genes have been linked to Parkinson's disease in the knowledge graph?",
+    "expected_route": "graph"
+  },
+  {
+    "query": "For diseases that resemble Parkinson's disease, which genes are they associated with?",
+    "expected_route": "graph"
+  },
+  {
+    "query": "Which genes, if any, does Amantadine upregulate according to the graph?",
+    "expected_route": "graph"
+  },
+  {
+    "query": "What genes tend to be upregulated in ocular cancer tissue, based on the graph data?",
+    "expected_route": "graph"
+  },
+  {
+    "query": "Which genes does Vemurafenib appear to downregulate?",
+    "expected_route": "graph"
+  },
+  {
+    "query": "In melanoma, which genes are typically downregulated according to the knowledge graph?",
+    "expected_route": "graph"
+  },
+  {
+    "query": "What symptoms tend to present alongside Alzheimer's disease?",
+    "expected_route": "graph"
+  },
+  {
+    "query": "Which symptoms are commonly linked to restless legs syndrome?",
+    "expected_route": "graph"
+  },
+  {
+    "query": "Are there compounds in the graph that palliate Parkinson's disease without treating it outright?",
+    "expected_route": "graph"
+  },
+  {
+    "query": "What medications palliate the symptoms of restless legs syndrome, according to the graph?",
+    "expected_route": "graph"
+  },
+  {
+    "query": "Where in the body does Gilles de la Tourette syndrome tend to localize, anatomically speaking?",
+    "expected_route": "graph"
+  },
+  {
+    "query": "Which anatomical sites are connected to salivary gland cancer?",
+    "expected_route": "graph"
+  },
+  {
+    "query": "What other diseases resemble amyotrophic lateral sclerosis most closely in the graph?",
+    "expected_route": "graph"
+  },
+  {
+    "query": "Is Creutzfeldt-Jakob disease connected to any other diseases through a resemblance relationship?",
+    "expected_route": "graph"
+  },
+  {
+    "query": "Which compounds does the graph identify as treating melanoma?",
+    "expected_route": "graph"
+  },
+  {
+    "query": "What drugs treat Gilles de la Tourette syndrome per the graph?",
+    "expected_route": "graph"
+  },
+  {
+    "query": "Which biological pathways do the genes tied to Parkinson's disease participate in?",
+    "expected_route": "graph"
+  },
+  {
+    "query": "Which side effects do compounds that treat Parkinson's disease tend to cause?",
+    "expected_route": "graph"
+  },
+  {
+    "query": "What side effects are linked to Haloperidol in the graph?",
+    "expected_route": "graph"
+  },
+  {
+    "query": "Which adverse effects does Quetiapine cause, based on the graph's relationships?",
+    "expected_route": "graph"
+  },
+  {
+    "query": "How many Phase III clinical trials exist for Rasagiline?",
+    "expected_route": "sql"
+  },
+  {
+    "query": "What's the average enrollment size across every completed study in the database?",
+    "expected_route": "sql"
+  },
+  {
+    "query": "Can you pull up all the studies sponsored by Ipsen?",
+    "expected_route": "sql"
+  },
+  {
+    "query": "Which drug shows up in the most clinical trials overall?",
+    "expected_route": "sql"
+  },
+  {
+    "query": "How many trials in total were conducted somewhere in France?",
+    "expected_route": "sql"
+  },
+  {
+    "query": "What's the combined enrollment across every trial studying Ropinirole?",
+    "expected_route": "sql"
+  },
+  {
+    "query": "Are there any sponsors that have funded more than five separate studies?",
+    "expected_route": "sql"
+  },
+  {
+    "query": "Where were the trial locations for studies involving Memantine?",
+    "expected_route": "sql"
+  },
+  {
+    "query": "How many studies investigating Vemurafenib currently have a status of 'Recruiting'?",
+    "expected_route": "sql"
+  },
+  {
+    "query": "Is there a difference in average enrollment between interventional and observational studies?",
+    "expected_route": "sql"
+  },
+  {
+    "query": "Which studies were conducted at the Rambam Health Care Campus?",
+    "expected_route": "sql"
+  },
+  {
+    "query": "How many studies has Sumitomo Pharma America sponsored?",
+    "expected_route": "sql"
+  },
+  {
+    "query": "What's the earliest start date on record for a Donepezil study?",
+    "expected_route": "sql"
+  },
+  {
+    "query": "Which cities hosted trials for Quetiapine?",
+    "expected_route": "sql"
+  },
+  {
+    "query": "How many distinct drugs were tested in Phase II trials?",
+    "expected_route": "sql"
+  },
+  {
+    "query": "Which country has the most clinical trial locations listed?",
+    "expected_route": "sql"
+  },
+  {
+    "query": "What is the title and completion date of the study with the largest enrollment number?",
+    "expected_route": "sql"
+  },
+  {
+    "query": "On average, how many sponsors back a single study?",
+    "expected_route": "sql"
+  },
+  {
+    "query": "Can you list every study involving Fluorouracil where enrollment exceeded 500 participants?",
+    "expected_route": "sql"
+  },
+  {
+    "query": "Break down the number of studies by phase for me.",
+    "expected_route": "sql"
+  },
+  {
+    "query": "Which drugs treat Parkinson's disease according to the graph, and what's the average enrollment across their clinical trials?",
+    "expected_route": "multi"
+  },
+  {
+    "query": "For compounds that palliate Alzheimer's disease symptoms, which trials are currently recruiting, and who's sponsoring them?",
+    "expected_route": "multi"
+  },
+  {
+    "query": "Among the drugs that treat Parkinson's disease, which one has the highest trial enrollment, and what's its mechanism of action?",
+    "expected_route": "multi"
+  },
+  {
+    "query": "Which genes are associated with melanoma, and are any compounds that downregulate those genes currently in trials sponsored by Ipsen?",
+    "expected_route": "multi"
+  },
+  {
+    "query": "Find drugs that treat restless legs syndrome per the graph and have completed trials enrolling over 300 patients.",
+    "expected_route": "multi"
+  },
+  {
+    "query": "What side effects does the drug with the most clinical trials cause, and what's the pharmacological explanation behind them?",
+    "expected_route": "multi"
+  },
+  {
+    "query": "For compounds linked to genes implicated in amyotrophic lateral sclerosis, what does the literature say about their clinical efficacy?",
+    "expected_route": "multi"
+  },
+  {
+    "query": "For every drug that treats Parkinson's disease according to the graph, which countries were their trials conducted in, and what's each drug's general mechanism?",
+    "expected_route": "multi"
+  },
+  {
+    "query": "Which sponsors are funding trials for compounds that treat Gilles de la Tourette syndrome, and what's the biological rationale behind those treatments?",
+    "expected_route": "multi"
+  },
+  {
+    "query": "Identify drugs tied to genes upregulated in Alzheimer's disease that also have an active Phase II trial.",
+    "expected_route": "multi"
+  },
+  {
+    "query": "What genes does Vemurafenib downregulate in melanoma, and how many patients have enrolled in its clinical trials to date?",
+    "expected_route": "multi"
+  },
+  {
+    "query": "Among compounds that treat diseases resembling Parkinson's disease, what's the average clinical trial enrollment?",
+    "expected_route": "multi"
+  },
+  {
+    "query": "For drugs sponsored by Kyowa Kirin Co., which diseases do they palliate according to the graph, and what mechanism explains that effect?",
+    "expected_route": "multi"
+  },
+  {
+    "query": "For the drug with the most clinical trial locations in the United States, what does published research say about its pharmacokinetics?",
+    "expected_route": "multi"
+  },
+  {
+    "query": "What compounds are linked to genes implicated in vascular cancer, and what's the current trial status for each?",
+    "expected_route": "multi"
+  },
+  {
+    "query": "For the drug with the earliest recorded trial start date, what's known about its pharmacokinetics, and which disease does it treat according to the graph?",
+    "expected_route": "multi"
+  },
+  {
+    "query": "Which drugs are connected to restless legs syndrome in the graph, and how many total trial locations exist across all of them?",
+    "expected_route": "multi"
+  },
+  {
+    "query": "What's the biological mechanism connecting Entacapone to Parkinson's disease, and how many completed studies exist for it?",
+    "expected_route": "multi"
+  },
+  {
+    "query": "Which compounds cause side effects shared with Haloperidol, and what's the total enrollment across their respective clinical trials?",
+    "expected_route": "multi"
+  },
+  {
+    "query": "Identify every compound that treats Creutzfeldt-Jakob disease per the graph, cross-reference with any ongoing clinical trials, and summarize what the literature says about how each one works.",
+    "expected_route": "multi"
+  }
+]
