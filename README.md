@@ -53,31 +53,72 @@ git clone [https://github.com/yourusername/Hybrid_RAG_System.git](https://github
 cd Hybrid_RAG_System/hybrid_rag_project
 pip install -r requirements.txt
 ```
-4. Environment Variables:Create a .env file in the hybrid_rag_project directory and configure your API keys and database URIs:Ini, TOMLGROQ_API_KEY=your_groq_api_key
+2. Environment Variables:
+Create a .env file in the hybrid_rag_project directory and configure your API keys and database URIs:
+```Ini, TOML
+GROQ_API_KEY=your_groq_api_key
 POSTGRES_URI=postgresql://user:password@localhost:5432/medical_db
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USERNAME=neo4j
 NEO4J_PASSWORD=your_password
 QDRANT_URL=http://localhost:6333
 QDRANT_API_KEY=your_qdrant_api_key
+```
 
-5. Launch Databases:Spin up the local PostgreSQL, Neo4j, and Qdrant instances using Docker:Bashdocker-compose up -d
-🗄️ Data Collection & Database PopulationTo replicate the academic environment, you must download the benchmark datasets and populate the three databases.
+3. Launch Databases:
+Spin up the local PostgreSQL, Neo4j, and Qdrant instances using Docker:
+```Bash
+docker-compose up -d
+```
+🗄️ Data Collection & Database Population
+To replicate the academic environment, you must download the benchmark datasets and populate the three databases.
 
-Step 1: Download External DatasetsHetionet (For Neo4j): Download the JSON version of the Hetionet biological network from the official repository: Hetionet v1.0 JSON. Save it in data/.Spider Dataset (For PostgreSQL/Evaluation): Download the Spider dataset (a large-scale complex text-to-SQL dataset) from Yale Lily: Spider Dataset. Extract it in data/spider/.
+Step 1: Download External Datasets
+Hetionet (For Neo4j): Download the JSON version of the Hetionet biological network from the official repository: [Hetionet v1.0 JSON](https://github.com/hetio/hetionet/tree/master/hetnet/json). Save it in data/.
+Spider Dataset (For PostgreSQL/Evaluation): Download the Spider dataset (a large-scale complex text-to-SQL dataset) from Yale Lily: [Spider Dataset](https://yale-lily.github.io/spider). Extract it in data/spider/ only the directory database and the file dev.json.
 
-Step 2: Fetch Unstructured DataRun the data collection scripts to fetch medical literature and contextual graphs:Bashpython scripts/data_collection/fetch_pubmed_api.py
-python scripts/data_collection/fetch_medical_api.py
+Step 2: Fetch Unstructured Data
+Run the data collection scripts to fetch medical literature and contextual graphs in this order:
+```Bash
 python scripts/data_collection/extract_hetionet.py
+python scripts/data_collection/fetch_pubmed_api.py
+python scripts/data_collection/fetch_medical_api.py
+```
 
-Step 3: Populate the DatabasesOnce the raw data is collected, run the bulk ingestion script to populate Qdrant, Neo4j, and PostgreSQL simultaneously:Bashpython src/medical_bulk_ingestion.py
-
-🧠 Training the Semantic RouterThe DistilBERT router must be trained before running the application:Supervised Fine-Tuning (SFT): Bootstraps the router's semantic understanding.Bashpython src/sft_trainer.py
-Reinforcement Learning (RL): Refines the policy using an $\epsilon$-greedy bandit approach based on simulated query rewards.Bashpython src/rl_trainer.py
-
-🖥️ Running the ApplicationStart the main interactive RAG dashboard using Streamlit:Bashstreamlit run src/app.py
-The dashboard allows you to query the system in natural language, view the chosen route (Vector, Graph, SQL, Multi), inspect the raw extracted contexts, and read the final synthesized answer.📊 Evaluation & Reproducibility (Ablation Study)The repository includes a comprehensive evaluation suite to measure routing accuracy, text-to-SQL performance, and generation quality.1. Router Accuracy Testing:Evaluate the RL Router against the holdout test set to measure routing precision, latency, and token cost:Bashpython evaluation/run_evaluation_cycle.py --phase RL
-2. Text-to-SQL Evaluation (Spider):Test the SQL retriever's accuracy on the complex cross-domain Spider benchmark:Bashpython evaluation/migrate_spider.py    # Migrates Spider schemas to PostgreSQL
+Step 3: Populate the Databases
+Once the raw data is collected, run the bulk ingestion script to populate Qdrant, Neo4j, and PostgreSQL simultaneously:
+```Bash
+python src/medical_bulk_ingestion.py
+```
+🧠 Training the Semantic Router
+The DistilBERT router must be trained before running the application:
+Supervised Fine-Tuning (SFT): Bootstraps the router's semantic understanding.
+```Bash
+python src/sft_trainer.py
+```
+Reinforcement Learning (RL): Refines the policy using an $\epsilon$-greedy bandit approach based on simulated query rewards.
+```Bash
+python src/rl_trainer.py
+```
+🖥️ Running the Application
+Start the main interactive RAG dashboard using Streamlit:
+```Bash
+streamlit run src/app.py
+```
+The dashboard allows you to query the system in natural language, view the chosen route (Vector, Graph, SQL, Multi), inspect the raw extracted contexts, and read the final synthesized answer.
+📊 Evaluation & Reproducibility (Ablation Study)
+The repository includes a comprehensive evaluation suite to measure routing accuracy, text-to-SQL performance, and generation quality.
+1. Router Accuracy Testing:Evaluate the RL Router against the holdout test set to measure routing precision, latency, and token cost:
+```Bash
+python evaluation/run_evaluation_cycle.py --phase RL
+```
+2. Text-to-SQL Evaluation (Spider):Test the SQL retriever's accuracy on the complex cross-domain Spider benchmark:
+```Bash
+python evaluation/migrate_spider.py    # Migrates Spider schemas to PostgreSQL
 python evaluation/evaluate_spider.py   # Runs the text-to-SQL evaluation
-3. RAG Quality Metrics (LLM-as-a-Judge):Computes Relevance, Fluency, and Faithfulness using a strict, customized LLM judge (Llama-3.3-70B) to penalize hallucinations and code artifacts:Bashpython evaluation/rag_evaluator.py
-Results will be saved as CSV files in the evaluation/ directory, ready to be imported into Jupyter Notebooks for Radar Chart and Bubble Chart visualizations.
+```
+3. RAG Quality Metrics (LLM-as-a-Judge):Computes Relevance, Fluency, and Faithfulness using a strict, customized LLM judge (Llama-3.3-70B) to penalize hallucinations and code artifacts:
+```Bash
+python evaluation/rag_evaluator.py
+```
+Results will be saved as CSV files in the evaluation/ directory.
