@@ -43,7 +43,7 @@ def clean_sql_output(text: str) -> str:
     return text.strip()
 
 class SQLRetriever:
-    def __init__(self, model_name="llama-3.1-8b-instant", temperature=0):
+    def __init__(self, model_name="llama-3.3-70b-versatile", temperature=0):
         postgres_uri = os.getenv("POSTGRES_URI", "")
         if not postgres_uri or "TUAPASSWORD" in postgres_uri:
             self.chain = None

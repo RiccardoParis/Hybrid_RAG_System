@@ -65,7 +65,7 @@ Answer:"""
 )
 
 class GraphRetriever:
-    def __init__(self, model_name: str = "llama-3.1-8b-instant"):
+    def __init__(self, model_name: str = "llama-3.3-70b-versatile"):
         # Inizializza la connessione al grafo Neo4j
         self.graph = Neo4jGraph(
             url=NEO4J_URI, 
