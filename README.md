@@ -1,108 +1,78 @@
 Markdown
-# Hybrid Multi-Source RAG System 🧠🧬
+# 🧠 Hybrid Multi-Agent RAG System for Medical Big Data
 
-An advanced Retrieval-Augmented Generation (RAG) architecture tailored for the medical domain. This system intelligently routes user queries across three distinct databases (Vector, Graph, and Relational) to synthesize highly accurate, hallucination-free answers using Large Language Models.
+An advanced, multi-source Retrieval-Augmented Generation (RAG) architecture designed to query, route, and synthesize complex medical, biological, and clinical trial data. 
 
-## 🏗️ System Architecture
+Unlike standard linear RAG pipelines, this system implements a **Reinforcement Learning-trained Semantic Router** to dynamically direct user queries across Vector, Relational (SQL), and Graph databases, concluding with a **Late Fusion** node for unified natural language generation.
 
-The system utilizes an agentic workflow powered by **LangGraph** to process, route, and fuse information:
-1. **Neural Router (DistilBERT):** Replaces rigid rules with an intent-recognition classification head. Trained via Curriculum Learning (SFT + RL) to map the semantic intent to the appropriate database using Compact Schemas.
-2. **Qdrant (Vector DB):** Handles semantic searches across medical abstracts and scientific literature using cross-lingual embeddings (`multilingual-e5-base`).
-3. **Neo4j (Knowledge Graph):** Manages multi-hop reasoning and ontological relationships (e.g., diseases, side effects, drugs) using Dynamic Schema-Augmented Cypher Generation.
-4. **PostgreSQL (Relational DB):** Processes quantitative queries and exact data filtering (e.g., clinical trial enrollments) via the Table-Augmented Generation (TAG) paradigm. Tracks RL logs and Energy Footprint.
-5. **Late Fusion Node:** An LLM (Llama-3) synthesizes the raw extracted data from all sources into a single, coherent natural language response.
-## ⚙️ Prerequisites
+![Architecture Diagram](Hybrid_RAG_Architecture.drawio.svg)
 
-- Python 3.10+
-- Docker & Docker Compose
-- Groq API Key (for LLM inference)
+## ✨ Key Features
 
-## 🚀 Installation & Setup
+*   **Dynamic Semantic Routing (RL Bandit):** A DistilBERT-based router trained via Supervised Fine-Tuning (SFT) and Reinforcement Learning ($\epsilon$-greedy) to classify queries. It achieves a 60% baseline accuracy on complex domain disambiguation, optimizing API costs and latency.
+*   **Multi-Source Retrieval:**
+    *   **Vector Search (Qdrant):** For unstructured medical literature (PubMed).
+    *   **Graph Search (Neo4j):** For topological queries and biomedical entity relationships (Hetionet).
+    *   **SQL Search (PostgreSQL):** For exact aggregations and clinical trial metrics.
+*   **Late Fusion Node:** Bypasses intermediate LLM summarization by injecting raw data tuples and JSONs directly into the final inference node, drastically reducing token costs and preventing "double-summarization" hallucinations.
+*   **LLM-as-a-Judge Evaluation:** A custom, robust evaluation pipeline inspired by the *Ragas* framework, scoring the architecture on *Relevance*, *Fluency*, and *Faithfulness*.
 
-**1. Clone the repository and install dependencies:**
+---
 
-```bash
-git clone [https://github.com/your-username/hybrid-rag-system.git](https://github.com/your-username/hybrid-rag-system.git)
-cd hybrid-rag-system
+## 📂 Repository Structure
+
+
+├── Hybrid_RAG_Architecture.drawio.svg
+├── hybrid_rag_project/
+│   ├── data/                           # (User-created) Raw datasets 
+│   ├── docker-compose.yml              # Container orchestration for databases
+│   ├── holdout_test_set.json           # Holdout data for Router Evaluation
+│   ├── requirements.txt                # Python dependencies
+│   ├── evaluation/                     # LLM-as-a-Judge and Benchmark scripts
+│   │   ├── evaluate_spider.py          # Text-to-SQL specific evaluation
+│   │   ├── migrate_spider.py           # Spider dataset ingestion tool
+│   │   ├── rag_evaluator.py            # Robust LLM evaluator with backoff
+│   │   └── run_evaluation_cycle.py     # Router accuracy testing
+│   ├── scripts/data_collection/        # Automated ETL pipelines
+│   │   ├── extract_hetionet.py         # Hetionet parsing
+│   │   └── fetch_*.py                  # APIs for PubMed and WikiGraphs
+│   └── src/                            # Core Application Code
+│       ├── app.py                      # Streamlit Dashboard
+│       ├── router.py                   # LangGraph state machine & Late Fusion
+│       ├── rl_router.py                # Reinforcement Learning Bandit logic
+│       ├── *_retriever.py              # Isolated modules for Qdrant, Neo4j, SQL
+│       ├── medical_bulk_ingestion.py   # Bulk database populator
+│       └── *_trainer.py                # SFT and RL training scripts
+
+🚀 Setup & Installation1. Clone the repository and install dependencies:Bashgit clone [https://github.com/yourusername/Hybrid_RAG_System.git](https://github.com/yourusername/Hybrid_RAG_System.git)
+cd Hybrid_RAG_System/hybrid_rag_project
 pip install -r requirements.txt
-2. Configure Environment Variables:
-Modify the .env file in the root directory (refer to .env.example):
 
-Snippet di codice
-GROQ_API_KEY=your_api_key_here
-POSTGRES_URI=postgresql://postgres:Password@127.0.0.1:5433/medical_rag_db
-QDRANT_URL=http://localhost:6333
+2. Environment Variables:Create a .env file in the hybrid_rag_project directory and configure your API keys and database URIs:Ini, TOMLGROQ_API_KEY=your_groq_api_key
+POSTGRES_URI=postgresql://user:password@localhost:5432/medical_db
 NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=Password
-3. Launch the Databases (Docker):
+NEO4J_USERNAME=neo4j
+NEO4J_PASSWORD=your_password
+QDRANT_URL=http://localhost:6333
+QDRANT_API_KEY=your_qdrant_api_key
 
-Bash
-docker compose up -d
+4. Launch Databases:Spin up the local PostgreSQL, Neo4j, and Qdrant instances using Docker:Bashdocker-compose up -d
+🗄️ Data Collection & Database PopulationTo replicate the academic environment, you must download the benchmark datasets and populate the three databases.
 
-co come riscrivere la sezione del README.md per renderla cristallina, includendo i riferimenti a Hetionet e valorizzando il lavoro di estrazione che hai fatto.
+Step 1: Download External DatasetsHetionet (For Neo4j): Download the JSON version of the Hetionet biological network from the official repository: Hetionet v1.0 JSON. Save it in data/.Spider Dataset (For PostgreSQL/Evaluation): Download the Spider dataset (a large-scale complex text-to-SQL dataset) from Yale Lily: Spider Dataset. Extract it in data/spider/.
 
-Sostituisci la vecchia sezione ## 💉 Medical Data Ingestion con questa versione dettagliata:
-
-Markdown
-## 💉 Pipeline ETL e Data Ingestion
-
-Il sistema non utilizza un dataset statico preconfezionato, ma costruisce la sua base di conoscenza attraverso una vera e propria pipeline ETL in due fasi:
-
-### Fase 1: Data Collection & Subgraph Extraction
-Prima di popolare i database, è necessario raccogliere ed estrarre i dati grezzi dalle fonti ufficiali:
-
-1. **Il Grafo Medico Base (Hetionet):** Scarica il file JSON originale di Hetionet v1.0 dal repository ufficiale e posizionalo nella cartella `data/raw/`:
-   [Link per il download di Hetionet (hetionet-v1.0.json.bz2)](https://github.com/hetio/hetionet/tree/master/hetnet/json)
-   
-2. **Estrazione del Sottografo:** Estrai solo i nodi e gli archi rilevanti per il dominio del progetto (malattie, geni, farmaci, sintomi):
-   ```bash
-   python scripts/data_collection/extract_hetionet.py
-Arricchimento Dati dal Web (API Fetching):
-Utilizza gli script dedicati per interrogare le API pubbliche (es. PubMed, ClinicalTrials.gov) e raccogliere gli abstract vettoriali e i dati tabellari corrispondenti alle entità del grafo estrattto:
-
-Bash
-python scripts/data_collection/fetch_pubmed_api.py
+Step 2: Fetch Unstructured DataRun the data collection scripts to fetch medical literature and contextual graphs:Bashpython scripts/data_collection/fetch_pubmed_api.py
 python scripts/data_collection/fetch_medical_api.py
-Fase 2: Bulk Ingestion nei 3 Database
-Una volta generati i dataset elaborati nella cartella data/processed/, puoi avviare l'ingestione parallela. Questo script popolerà Qdrant (generando gli embeddings), Neo4j (creando nodi e relazioni Cypher) e PostgreSQL (creando le tabelle relazionali):
+python scripts/data_collection/extract_hetionet.py
 
-Bash
-python src/medical_bulk_ingestion.py
+Step 3: Populate the DatabasesOnce the raw data is collected, run the bulk ingestion script to populate Qdrant, Neo4j, and PostgreSQL simultaneously:Bashpython src/medical_bulk_ingestion.py
 
-🧠 Neural Router Training Pipeline
-The router learns through Curriculum Learning. To initialize the brain of the system:
+🧠 Training the Semantic RouterThe DistilBERT router must be trained before running the application:Supervised Fine-Tuning (SFT): Bootstraps the router's semantic understanding.Bashpython src/sft_trainer.py
+Reinforcement Learning (RL): Refines the policy using an $\epsilon$-greedy bandit approach based on simulated query rewards.Bashpython src/rl_trainer.py
 
-Adversarial Warmup: Generate a synthetic, highly deceptive dataset.
-
-Bash
-python src/auto_warmup.py
-Supervised Fine-Tuning (SFT): Teach the model semantic accuracy.
-
-Bash
-python src/sft_trainer.py
-Reinforcement Learning (RLUF): Optimize live weights based on User Feedback and real token costs (Energy Footprint).
-
-Bash
-python src/rl_trainer.py
-
-💻 Usage
-Launch the interactive Streamlit dashboard:
-
-Bash
-streamlit run src/app.py
-
-🗺️ Roadmap & Future Work
-[x] Implement Metadata-based Dynamic Routing.
-
-[x] Integrate Reinforcement Learning from User Feedback (RLUF).
-
-[x] Evaluate System Energy Footprint and token optimization.
-
-[ ] Evaluate system on OTT-QA Benchmark using LLM-as-a-Judge (Relevance, Faithfulness, Fluency).
-```
-
-### Architettura di Sistema
-
-Di seguito l'architettura del nostro RAG Ibrido Multi-Sorgente con Router Neurale:
-![Architettura](Hybrid_RAG_Architecture.drawio.svg)
+🖥️ Running the ApplicationStart the main interactive RAG dashboard using Streamlit:Bashstreamlit run src/app.py
+The dashboard allows you to query the system in natural language, view the chosen route (Vector, Graph, SQL, Multi), inspect the raw extracted contexts, and read the final synthesized answer.📊 Evaluation & Reproducibility (Ablation Study)The repository includes a comprehensive evaluation suite to measure routing accuracy, text-to-SQL performance, and generation quality.1. Router Accuracy Testing:Evaluate the RL Router against the holdout test set to measure routing precision, latency, and token cost:Bashpython evaluation/run_evaluation_cycle.py --phase RL
+2. Text-to-SQL Evaluation (Spider):Test the SQL retriever's accuracy on the complex cross-domain Spider benchmark:Bashpython evaluation/migrate_spider.py    # Migrates Spider schemas to PostgreSQL
+python evaluation/evaluate_spider.py   # Runs the text-to-SQL evaluation
+3. RAG Quality Metrics (LLM-as-a-Judge):Computes Relevance, Fluency, and Faithfulness using a strict, customized LLM judge (Llama-3.3-70B) to penalize hallucinations and code artifacts:Bashpython evaluation/rag_evaluator.py
+Results will be saved as CSV files in the evaluation/ directory, ready to be imported into Jupyter Notebooks for Radar Chart and Bubble Chart visualizations.
