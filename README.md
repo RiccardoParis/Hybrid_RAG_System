@@ -20,7 +20,7 @@ Unlike standard linear RAG pipelines, this system implements a **Reinforcement L
 ---
 
 ## 📂 Repository Structure
-
+```text
 
 ├── Hybrid_RAG_Architecture.drawio.svg
 ├── hybrid_rag_project/
@@ -43,6 +43,8 @@ Unlike standard linear RAG pipelines, this system implements a **Reinforcement L
 │       ├── *_retriever.py              # Isolated modules for Qdrant, Neo4j, SQL
 │       ├── medical_bulk_ingestion.py   # Bulk database populator
 │       └── *_trainer.py                # SFT and RL training scripts
+
+```
 
 🚀 Setup & Installation1. Clone the repository and install dependencies:Bashgit clone [https://github.com/yourusername/Hybrid_RAG_System.git](https://github.com/yourusername/Hybrid_RAG_System.git)
 cd Hybrid_RAG_System/hybrid_rag_project
