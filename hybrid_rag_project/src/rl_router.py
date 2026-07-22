@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import random
+import os
 from transformers import DistilBertTokenizer, DistilBertForSequenceClassification
 
 class RLBanditRouter:
@@ -18,16 +19,29 @@ class RLBanditRouter:
             4: "multi"
         }
         
+        
         try:
-            # Carica il tokenizer e il modello pre-addestrato
-            model_name = "distilbert-base-multilingual-cased"
-            print(f"[RL Router] Caricamento modello '{model_name}'...")
+            # 1. Calcola il percorso assoluto in modo dinamico
+            # Risale dalla cartella 'src' (dove si trova rl_router.py) alla root del progetto
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.dirname(current_dir)
             
-            self.tokenizer = DistilBertTokenizer.from_pretrained(model_name)
+            # Punta direttamente alla cartella salvata dal training
+            local_model_path = os.path.join(project_root, "distilbert-base-multilingual-cased")
             
-            # Assicurati di specificare num_labels=5 per la classificazione a 5 vie
+            # 2. Controllo di sicurezza
+            if os.path.exists(local_model_path):
+                print(f"[RL Router] 🎯 Trovati pesi addestrati localmente in: {local_model_path}")
+                model_to_load = local_model_path
+            else:
+                print(f"[RL Router] ⚠️ ATTENZIONE: Cartella {local_model_path} non trovata.")
+                print("[RL Router] Scarico il modello base (non addestrato) da HuggingFace...")
+                model_to_load = "distilbert-base-multilingual-cased"
+            
+            # 3. Caricamento effettivo
+            self.tokenizer = DistilBertTokenizer.from_pretrained(model_to_load)
             self.model = DistilBertForSequenceClassification.from_pretrained(
-                model_name, 
+                model_to_load, 
                 num_labels=5
             )
             
@@ -76,3 +90,4 @@ class RLBanditRouter:
             
         action_name = self.actions.get(chosen_idx, "multi")
         return action_name, is_exploration
+    

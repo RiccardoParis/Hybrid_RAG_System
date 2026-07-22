@@ -2,6 +2,7 @@ from langchain_neo4j import Neo4jGraph, GraphCypherQAChain
 from langchain_groq import ChatGroq
 from langchain_core.prompts import PromptTemplate
 from config import NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD, GROQ_API_KEY
+import time
 
 CYPHER_PROMPT = PromptTemplate(
     input_variables=["schema", "question"],
@@ -64,7 +65,7 @@ Answer:"""
 )
 
 class GraphRetriever:
-    def __init__(self, model_name: str = "llama-3.3-70b-versatile"):
+    def __init__(self, model_name: str = "llama-3.1-8b-instant"):
         # Inizializza la connessione al grafo Neo4j
         self.graph = Neo4jGraph(
             url=NEO4J_URI, 
@@ -89,14 +90,34 @@ class GraphRetriever:
             verbose=True,
             allow_dangerous_requests=True,
             cypher_prompt=CYPHER_PROMPT,
-            qa_prompt=QA_PROMPT
+            #qa_prompt=QA_PROMPT
+            return_direct=True
         )
 
+
     def ask(self, question: str, callbacks=None):
-        """Pone una domanda basandosi sui dati nel knowledge graph."""
-        try:
-            return self.chain.invoke({"query": question}, config={"callbacks": callbacks})
-        except Exception as e:
-            print(f"[Router] Fallback attivato: Errore sintassi Cypher intercettato. Dettagli: {str(e)[:100]}...")
-            print("[Router] Passaggio trasparente al Vector Search.")
-            return ""
+        """Pone una domanda basandosi sui dati nel knowledge graph (con retry per Rate Limit)."""
+        max_attempts = 3
+        
+        for attempt in range(max_attempts):
+            try:
+                # Tentativo di esecuzione della catena
+                return self.chain.invoke({"query": question}, config={"callbacks": callbacks})
+                
+            except Exception as e:
+                error_msg = str(e).lower()
+                
+                # Se è un errore di Rate Limit (429), mettiamo in pausa e riproviamo
+                if "429" in error_msg or "rate limit" in error_msg:
+                    wait_time = 5 * (attempt + 1) # Backoff lineare: 5s, 10s, 15s
+                    print(f"⚠️ [Graph] API Rate Limit raggiunto. In pausa per {wait_time} secondi (Tentativo {attempt+1}/{max_attempts})...")
+                    time.sleep(wait_time)
+                else:
+                    # Se è un VERO errore Cypher, attiviamo il fallback immediato
+                    print(f"[Router] Fallback attivato: Errore sintassi Cypher intercettato. Dettagli: {str(e)[:100]}...")
+                    print("[Router] Passaggio trasparente al Vector Search.")
+                    return ""
+                    
+        # Se tutti i tentativi falliscono per il rate limit
+        print("❌ [Graph] Fallimento definitivo dopo aver esaurito i retry per il Rate Limit.")
+        return ""

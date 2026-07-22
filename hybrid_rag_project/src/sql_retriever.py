@@ -60,4 +60,17 @@ class SQLRetriever:
     def ask(self, question: str, callbacks=None) -> str:
         if not self.chain:
             return "Database SQL non configurato."
-        return self.chain.invoke({"question": question}, config={"callbacks": callbacks})
+        
+        # 1. Invia esplicitamente top_k=15 al prompt
+        raw_result = self.chain.invoke(
+            {"question": question, "top_k": 15}, 
+            config={"callbacks": callbacks}
+        )
+        
+        # 2. GUARDA DI SICUREZZA IN PYTHON:
+        # Se il risultato supera 4000 caratteri (~1000 token), lo tronchiamo in modo sicuro
+        if isinstance(raw_result, str) and len(raw_result) > 4000:
+            print(f"[SQLRetriever - WARNING] Risultato SQL troppo lungo ({len(raw_result)} caratteri). Troncamento applicato.")
+            raw_result = raw_result[:4000] + "\n... [Risultati SQL troncati per eccessiva lunghezza]"
+            
+        return raw_result

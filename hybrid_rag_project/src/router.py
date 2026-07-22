@@ -11,8 +11,8 @@ from config import GROQ_API_KEY
 LLM_PRICING = {
     "llama-3.1-8b-instant": {"input": 0.05 / 1e6, "output": 0.08 / 1e6},
     "llama-3.3-70b-versatile": {"input": 0.59 / 1e6, "output": 0.79 / 1e6},
-    "qwen/qwen3-32b": {"input": 0.29 / 1e6, "output": 0.59 / 1e6},
-    "meta-llama/llama-4-scout-17b-16e-instruct": {"input": 0.11 / 1e6, "output": 0.34 / 1e6}
+    "qwen/qwen3.6-27b": {"input": 0.60 / 1e6, "output": 3.00 / 1e6},
+    "openai/gpt-oss-20b": {"input": 0.075 / 1e6, "output": 0.30 / 1e6}
 }
 
 class GroqTokenCallback(BaseCallbackHandler):
@@ -261,7 +261,7 @@ def late_fusion_node(state: AgentState):
     llm = ChatGroq(
         temperature=0, 
         groq_api_key=GROQ_API_KEY, 
-        model_name="llama-3.3-70b-versatile"
+        model_name="openai/gpt-oss-20b"
     )
     
     prompt = ChatPromptTemplate.from_messages([
@@ -334,7 +334,7 @@ SQL Context:
     usage = response.response_metadata.get('token_usage', {})
     inp = usage.get('prompt_tokens', 0)
     out = usage.get('completion_tokens', 0)
-    pricing = LLM_PRICING.get("llama-3.3-70b-versatile", {"input": 0.0, "output": 0.0})
+    pricing = LLM_PRICING.get("openai/gpt-oss-20b", {"input": 0.0, "output": 0.0})
     cost = (inp * pricing["input"]) + (out * pricing["output"])
     
     return {"final_answer": response.content, "input_tokens": inp, "output_tokens": out, "total_cost": cost}
