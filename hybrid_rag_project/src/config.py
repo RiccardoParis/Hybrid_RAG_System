@@ -18,3 +18,8 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 if not GROQ_API_KEY:
     print("Warning: GROQ_API_KEY is not set in the environment variables.")
+
+# AWS Bedrock Mantle Config (OpenAI Compatible)
+AWS_MANTLE_API_KEY = os.getenv("AWS_MANTLE_API_KEY")
+AWS_MANTLE_REGION = os.getenv("AWS_MANTLE_REGION", "us-east-1")
+AWS_MANTLE_BASE_URL = f"https://bedrock-mantle.{AWS_MANTLE_REGION}.api.aws/v1"

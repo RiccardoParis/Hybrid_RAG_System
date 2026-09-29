@@ -13,16 +13,16 @@ from rl_logger import log_interaction
 
 def generate_synthetic_queries():
     """
-    Fase 1: Genera 250 query simulate invocando LLama-3.3-70B a batch e salva l'output JSON.
+    Phase 1: Generates 250 simulated queries via batch invocation of LLama-3.3-70B and saves the JSON output.
     """
-    print("[Auto Warmup] Avvio generazione query sintetiche a batch. Acquisizione schemi...")
+    print("[Auto Warmup] Starting batch synthetic query generation. Fetching schemas...")
     
     schemas = get_detailed_schemas()
     
     llm = ChatGroq(
         temperature=0.7, 
         groq_api_key=GROQ_API_KEY, 
-        model_name="llama-3.3-70b-versatile"
+        model_name="openai/gpt-oss-120b"
     )
     
     categories = ['no_retrieval', 'vector', 'graph', 'sql', 'multi']
@@ -37,7 +37,7 @@ def generate_synthetic_queries():
     }
     
     for category in categories:
-        print(f"[Auto Warmup] Generazione di 50 domande per la categoria '{category}' in corso...")
+        print(f"[Auto Warmup] Generating 50 questions for category '{category}'...")
         
         instruction = category_instructions.get(category, "")
         
@@ -89,14 +89,14 @@ AVAILABLE SCHEMAS:
                 
             queries_list = json.loads(json_str)
             all_queries.extend(queries_list)
-            print(f"[Auto Warmup] Successo per '{category}': estratte {len(queries_list)} domande.")
+            print(f"[Auto Warmup] Success for '{category}': {len(queries_list)} questions extracted.")
             
         except json.JSONDecodeError as e:
-            print(f"[Auto Warmup] Errore critico nel parsing JSON per la categoria '{category}': {e}")
+            print(f"[Auto Warmup] Critical JSON parsing error for category '{category}': {e}")
         except Exception as e:
-            print(f"[Auto Warmup] Si è verificato un errore per la categoria '{category}': {e}")
+            print(f"[Auto Warmup] An error occurred for category '{category}': {e}")
 
-    # Salvataggio
+    # Save to disk
     project_root = os.path.dirname(os.path.dirname(__file__))
     data_dir = os.path.join(project_root, "data")
     os.makedirs(data_dir, exist_ok=True)
@@ -106,36 +106,35 @@ AVAILABLE SCHEMAS:
     with open(file_path, "w", encoding="utf-8") as f:
         json.dump(all_queries, f, indent=4, ensure_ascii=False)
         
-    print(f"[Auto Warmup] Generazione completata con successo! Salvate {len(all_queries)} query in: {file_path}")
+    print(f"[Auto Warmup] Generation successfully completed! Saved {len(all_queries)} queries in: {file_path}")
 
 def simulate_routing_interactions():
     """
-    Fase 2: Simula il traffico sul router e popola la tabella rl_logs in PostgreSQL.
+    Phase 2: Simulates router traffic and populates the rl_logs table in PostgreSQL.
     """
     project_root = os.path.dirname(os.path.dirname(__file__))
     file_path = os.path.join(project_root, "data", "synthetic_warmup_queries.json")
     
     if not os.path.exists(file_path):
-        print("[Auto Warmup] Errore: File JSON non trovato per la simulazione.")
+        print("[Auto Warmup] Error: JSON file not found for simulation.")
         return
         
-    print("[Auto Warmup] Caricamento query dal file JSON...")
+    print("[Auto Warmup] Loading queries from JSON file...")
     with open(file_path, "r", encoding="utf-8") as f:
         queries_list = json.load(f)
         
     from rl_logger import log_interaction, update_reward
     
-    print("[Auto Warmup] Inizializzazione RL Router e recupero schemi compatti...")
+    print("[Auto Warmup] Initializing RL Router and fetching compact schemas...")
     bandit_router = RLBanditRouter()
     schemas = get_compact_schemas()
     
-    print(f"[Auto Warmup] Inizio Simulazione su {len(queries_list)} query (Esplorazione Casuale Epsilon=1.0)...")
+    print(f"[Auto Warmup] Starting Simulation on {len(queries_list)} queries (Random Exploration Epsilon=1.0)...")
     for i, item in enumerate(queries_list, start=1):
         query = item.get("query", "")
-        # Dentro il ciclo in auto_warmup.py:
         expected_route = item.get("expected_route")
         
-        # Definizione dei pesi energetici per classe
+        # Energy weight definitions per class
         cost_map = {
             "no_retrieval": 35,
             "vector": 400,
@@ -144,8 +143,8 @@ def simulate_routing_interactions():
             "multi": 1500
         }
         
-        # Sceglie l'azione forzando l'esplorazione totalmente casuale (epsilon=1.0)
-        # in modo che il dataset iniziale copra uniformemente tutte le braccia.
+        # Select arm forcing entirely random exploration (epsilon=1.0)
+        # ensuring the initial dataset uniformly covers all arms.
         action_name, is_exploration = bandit_router.choose_arm(
             query=query, 
             epsilon=1.0, 
@@ -154,31 +153,31 @@ def simulate_routing_interactions():
             sql_meta=schemas['sql']
         )
         
-        # Calcola il costo simulato basato sul Ground Truth per condizionare pesantemente il Reinforcement Learning
+        # Calculate simulated cost based on Ground Truth to heavily condition Reinforcement Learning
         simulated_cost = cost_map.get(action_name, 150)
         
-        # Registra l'interazione nel DB Postgres (user_reward = NULL inizialmente).
+        # Log the interaction in the Postgres DB (user_reward = NULL initially).
         log_id = log_interaction(query=query, chosen_arm=action_name, token_cost=simulated_cost)
         
-        # Logica ORACLE: Valutazione immediata usando la expected_route come Ground Truth
+        # ORACLE Logic: Immediate evaluation using expected_route as Ground Truth
         if action_name == expected_route:
             update_reward(log_id, 1)
-            eval_str = "CORRETTO (+1)"
+            eval_str = "CORRECT (+1)"
         else:
             update_reward(log_id, 0)
-            eval_str = "ERRATO (0)"
+            eval_str = "INCORRECT (0)"
         
-        # Tronca la query per pulizia nei log
+        # Truncate query for clean logs
         short_query = (query[:40] + '...') if len(query) > 40 else query
-        print(f"[Warmup {i:03d}/{len(queries_list)}] Inserita query: '{short_query}' -> Braccio esplorato: {action_name} | Truth: {expected_route} | Esito: {eval_str} (Log ID: {log_id})")
+        print(f"[Warmup {i:03d}/{len(queries_list)}] Inserted query: '{short_query}' -> Explored arm: {action_name} | Truth: {expected_route} | Outcome: {eval_str} (Log ID: {log_id})")
         
-    print("[Auto Warmup] Fase 2 completata! Tabella rl_logs popolata con valutazioni oracolo e pronta per l'addestramento.")
+    print("[Auto Warmup] Phase 2 completed! The rl_logs table is populated with oracle evaluations and ready for training.")
 
 if __name__ == "__main__":
     project_root = os.path.dirname(os.path.dirname(__file__))
     file_path = os.path.join(project_root, "data", "synthetic_warmup_queries.json")
     
-    # Esegue la pipeline automatica end-to-end
+    # Run the automatic end-to-end pipeline
     if not os.path.exists(file_path):
         generate_synthetic_queries()
         

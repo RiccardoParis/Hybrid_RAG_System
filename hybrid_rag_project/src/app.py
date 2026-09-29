@@ -62,7 +62,7 @@ with st.sidebar:
                         with open(temp_path, "wb") as f:
                             f.write(sf.getbuffer())
                         
-                        # Inferiamo il nome della tabella dal nome del file
+                        # We infer the table name from the file name
                         inferred_table_name = os.path.splitext(sf.name)[0]
                         try:
                             ingest_generic_sql(temp_path, inferred_table_name)
@@ -86,7 +86,7 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# User input (Modificato per il dominio medico)
+# User input 
 if prompt := st.chat_input("Ask a question (e.g., 'How many patients are enrolled in phase 3 trials?')..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
@@ -155,7 +155,7 @@ if prompt := st.chat_input("Ask a question (e.g., 'How many patients are enrolle
                 
                 st.write("---")
                 
-                # Mostriamo esplicitamente il ramo scelto in inglese
+                # We explicitly display the selected branch 
                 arm_used = final_state.get("chosen_arm", "Unknown")
                 st.write(f"🕵️‍♂️ **Routing Analysis:** The system decided to query the **`{arm_used.upper()}`** node for this question.")
                 

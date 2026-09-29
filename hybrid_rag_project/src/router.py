@@ -1,21 +1,28 @@
 import re
+import os
 import json
 from typing import TypedDict, List, Any, Annotated
 import operator
 from langgraph.graph import StateGraph, START, END
 from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI  # Added for AWS Bedrock Mantle compatibility
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.callbacks import BaseCallbackHandler
-from config import GROQ_API_KEY
+from config import GROQ_API_KEY, AWS_MANTLE_API_KEY, AWS_MANTLE_BASE_URL
 
 LLM_PRICING = {
     "llama-3.1-8b-instant": {"input": 0.05 / 1e6, "output": 0.08 / 1e6},
     "llama-3.3-70b-versatile": {"input": 0.59 / 1e6, "output": 0.79 / 1e6},
     "qwen/qwen3.6-27b": {"input": 0.60 / 1e6, "output": 3.00 / 1e6},
-    "openai/gpt-oss-20b": {"input": 0.075 / 1e6, "output": 0.30 / 1e6}
+    "openai/gpt-oss-20b": {"input": 0.075 / 1e6, "output": 0.30 / 1e6},
+    "openai/gpt-oss-120b": {"input": 0.15 / 1e6, "output": 0.60 / 1e6},
+    # AWS Bedrock Pricing (Cost per 1M tokens)
+    "anthropic.claude-3-5-sonnet-20240620-v1:0": {"input": 3.00 / 1e6, "output": 15.00 / 1e6},
+    "meta.llama3-1-405b-instruct-v1:0": {"input": 2.40 / 1e6, "output": 2.40 / 1e6}
 }
 
-class GroqTokenCallback(BaseCallbackHandler):
+class TokenCallback(BaseCallbackHandler):
+    """Universal Callback for Token Tracking (Groq & OpenAI/Mantle Compatible)"""
     def __init__(self, model_name: str):
         self.model_name = model_name
         self.input_tokens = 0
@@ -26,16 +33,48 @@ class GroqTokenCallback(BaseCallbackHandler):
         if response.generations:
             for gen in response.generations[0]:
                 if hasattr(gen, 'message') and hasattr(gen.message, 'response_metadata'):
-                    usage = gen.message.response_metadata.get('token_usage', {})
-                    inp = usage.get('prompt_tokens', 0)
-                    out = usage.get('completion_tokens', 0)
+                    metadata = gen.message.response_metadata
+                    
+                    # Try Groq format first, then OpenAI/Mantle format
+                    usage = metadata.get('token_usage', metadata.get('usage', {}))
+                    
+                    if hasattr(usage, 'prompt_tokens'): # Handle Pydantic objects if returned
+                        inp = usage.prompt_tokens
+                        out = usage.completion_tokens
+                    else: # Handle standard dictionaries
+                        inp = usage.get('prompt_tokens', 0)
+                        out = usage.get('completion_tokens', 0)
+                        
                     self.input_tokens += inp
                     self.output_tokens += out
                     
                     pricing = LLM_PRICING.get(self.model_name, {"input": 0.0, "output": 0.0})
                     self.total_cost += (inp * pricing["input"]) + (out * pricing["output"])
 
-# Import dei retriever e moduli di sistema
+def get_chat_model(model_id: str, temperature: float = 0.0):
+    """
+    Dynamically initializes the correct LLM client based on the model ID.
+    If the model ID contains 'anthropic' or 'meta', it routes to AWS Bedrock Mantle.
+    Otherwise, it routes to Groq.
+    """
+    if "anthropic" in model_id or "meta.llama" in model_id:
+        if not AWS_MANTLE_API_KEY:
+            raise ValueError("AWS_MANTLE_API_KEY is missing in environment variables.")
+        return ChatOpenAI(
+            model=model_id,
+            temperature=temperature,
+            api_key=AWS_MANTLE_API_KEY,
+            base_url=AWS_MANTLE_BASE_URL,
+            max_tokens=1024
+        )
+    else:
+        return ChatGroq(
+            model_name=model_id,
+            temperature=temperature,
+            groq_api_key=GROQ_API_KEY
+        )
+
+# Import retrievers and system modules
 from vector_retriever import VectorRetriever
 from graph_retriever import GraphRetriever
 from sql_retriever import SQLRetriever
@@ -43,7 +82,7 @@ from rl_router import RLBanditRouter
 from schema_extractor import get_compact_schemas, get_detailed_schemas
 from rl_logger import log_interaction
 
-# 1. Definizione dello stato aggiornata
+# 1. State Definition
 class AgentState(TypedDict):
     query: str
     vector_query: str
@@ -62,17 +101,18 @@ class AgentState(TypedDict):
     output_tokens: Annotated[int, operator.add]
     total_cost: Annotated[float, operator.add]
 
-# 2. Inizializzazioni
+# 2. Initialization
 vector_retriever = VectorRetriever(collection_name="hybrid_rag", model_name="intfloat/multilingual-e5-base")
 graph_retriever = GraphRetriever()
 sql_retriever=SQLRetriever()
 bandit_router = RLBanditRouter()
 
-import json
-
-# 3. Risoluzione Multi-Source usando gli Schemi Dettagliati
+# 3. Multi-Source Resolution using Detailed Schemas
 def resolve_multi_source(query: str, schemas: str):
-    llm = ChatGroq(temperature=0, groq_api_key=GROQ_API_KEY, model_name="llama-3.1-8b-instant")
+    # Change the model here for testing. Example: "anthropic.claude-3-5-sonnet-20240620-v1:0"
+    model_id = "openai/gpt-oss-20b" 
+    llm = get_chat_model(model_id=model_id, temperature=0.0)
+    
     prompt = ChatPromptTemplate.from_messages([
     ("system", """You are a Query Decomposition Master for a Multi-Source RAG system. 
 The user's query requires information from different databases. Your task is to break down the query into specific SUB-QUESTIONS, assigning each to the correct database based on the provided schemas.
@@ -89,14 +129,21 @@ Database Schemas:
     ])
     try:
         res = (prompt | llm).invoke({"schemas": schemas, "query": query})
-        usage = res.response_metadata.get('token_usage', {})
-        inp = usage.get('prompt_tokens', 0)
-        out = usage.get('completion_tokens', 0)
-        pricing = LLM_PRICING.get("llama-3.1-8b-instant", {"input": 0.0, "output": 0.0})
-        cost = (inp * pricing["input"]) + (out * pricing["output"])
-        print(f"[Router - DEBUG] Costo per resolve_multi_source: ${cost:.5f}")
-        content = res.content.strip()
         
+        # Token usage logic adapted for both Groq and OpenAI/Mantle metadata format
+        usage = res.response_metadata.get('token_usage', res.response_metadata.get('usage', {}))
+        if hasattr(usage, 'prompt_tokens'):
+            inp = usage.prompt_tokens
+            out = usage.completion_tokens
+        else:
+            inp = usage.get('prompt_tokens', 0)
+            out = usage.get('completion_tokens', 0)
+            
+        pricing = LLM_PRICING.get(model_id, {"input": 0.0, "output": 0.0})
+        cost = (inp * pricing["input"]) + (out * pricing["output"])
+        print(f"[Router - DEBUG] Multi-source resolution cost: ${cost:.5f}")
+        
+        content = res.content.strip()
         match = re.search(r'\{.*\}', content, re.DOTALL)
         if match:
             try:
@@ -105,31 +152,38 @@ Database Schemas:
             except json.JSONDecodeError:
                 pass
         
-        # Fallback di sicurezza: se fallisce, restituisce la query originale per entrambi
+        # Security fallback: return original query for both paths if JSON parsing fails
         return {"vector": query, "graph": query}, inp, out, cost
         
     except Exception as e:
-        print(f"[Router] Errore in resolve_multi_source: {e}")
+        print(f"[Router] Error in resolve_multi_source: {e}")
         return {"vector": query, "graph": query}, 0, 0, 0.0
 
-# 4. Il Nodo Decisionale (Cuore del RL)
+# 4. Decision Node (RL Core)
 def parse_query_node(state: AgentState):
     query = state["query"]
     
-    # Estrazione schemi compatti dalla cache
+    # Extract compact schemas from cache
     compact_schemas = get_compact_schemas()
     
-    # Scelta del braccio tramite DistilBERT
-    action_name, is_expl = bandit_router.choose_arm(
-        query, epsilon=0.1, 
-        vector_meta=compact_schemas["vector"], 
-        graph_meta=compact_schemas["graph"], 
-        sql_meta=compact_schemas["sql"]
-    )
+    # Override Control Check
+    forced_route = os.environ.get("FORCE_ROUTE")
+    if forced_route:
+        action_name = forced_route
+        is_expl = False
+        print(f"[Router] 🛑 OVERRIDE ACTIVE: Forced arm {action_name}")
+    else:
+        # Arm selection via DistilBERT (Standard Behavior)
+        action_name, is_expl = bandit_router.choose_arm(
+            query, epsilon=0.1, 
+            vector_meta=compact_schemas["vector"], 
+            graph_meta=compact_schemas["graph"], 
+            sql_meta=compact_schemas["sql"]
+        )
     
-    print(f"[Router] Braccio scelto: {action_name} (Exploration: {is_expl})")
+    print(f"[Router] Selected Arm: {action_name} (Exploration: {is_expl})")
     
-    # Registrazione su PostgreSQL con token_cost iniziale a 0
+    # Registration in PostgreSQL with initial token cost at 0
     log_id = log_interaction(query, action_name)
     
     routes = []
@@ -140,7 +194,7 @@ def parse_query_node(state: AgentState):
         detailed_schemas = get_detailed_schemas()
         schemas_str = f"Vector: {detailed_schemas['vector']}\nGraph: {detailed_schemas['graph']}\nSQL: {detailed_schemas['sql']}"
         
-        # multi_decision ora è un DIZIONARIO (es. {"vector": "sotto-domanda", "sql": "sotto-domanda"})
+        # multi_decision is a DICTIONARY (e.g., {"vector": "sub-question", "sql": "sub-question"})
         multi_decision, inp, out, cost = resolve_multi_source(query, schemas_str)
         
         for db_name, sub_query in multi_decision.items():
@@ -159,39 +213,40 @@ def parse_query_node(state: AgentState):
     return {"chosen_arm": action_name, "log_id": log_id, "routing_decision": routes, "input_tokens": inp, "output_tokens": out, "total_cost": cost, **state_updates}
 
 def vector_search_node(state: AgentState):
-    """Esegue la ricerca sul vector store."""
+    """Executes search on the vector store."""
     original_query = state.get("vector_query") or state["query"]
     
-    # FIX PER IL MODELLO E5: Aggiungiamo il prefisso obbligatorio per le domande
+    # E5 MODEL FIX: Adding the mandatory prefix for queries
     e5_query = f"query: {original_query}"
     
-    print(f"[Router] Esecuzione Vector Search per: {e5_query}")
+    print(f"[Router] Executing Vector Search for: {e5_query}")
     try:
-        # Passiamo la query formattata a Qdrant
+        # Pass formatted query to Qdrant
         docs = vector_retriever.search(e5_query)
-        # Estraiamo il testo dai documenti per passarlo all'LLM
+        # Extract text from documents for the LLM
         results = [doc.page_content for doc in docs]
     except Exception as e:
-        print(f"[Router] Errore Vector Search: {e}")
-        results = [f"Errore Vector Search: {e}"]
+        print(f"[Router] Vector Search Error: {e}")
+        results = [f"Vector Search Error: {e}"]
     return {"vector_results": results}
 
 def graph_search_node(state: AgentState):
-    """Esegue la ricerca sul knowledge graph."""
-    cb = GroqTokenCallback(model_name="llama-3.1-8b-instant")
+    """Executes search on the knowledge graph."""
+    model_id = "openai/gpt-oss-20b"
+    cb = TokenCallback(model_name=model_id)
     query = state.get("graph_query") or state["query"]
-    print(f"[Router] Esecuzione Graph Search per: {query}")
+    print(f"[Router] Executing Graph Search for: {query}")
     try:
-        # Esegue una query con LangChain GraphCypherQAChain
+        # Execute query using LangChain GraphCypherQAChain
         result = graph_retriever.ask(query, callbacks=[cb])
         inp = cb.input_tokens
         out = cb.output_tokens
         cost = cb.total_cost
-        # Per assicurarci che gli ID entrino correttamente nello stato in base ai pattern LangGraph
+        # Ensure IDs enter the state correctly based on LangGraph patterns
         found_ids = list(set(re.findall(r'\bns/[\w-]+\b', str(result))))
     except Exception as e:
-        print(f"[Router] Errore Graph Search: {e}")
-        result = {"error": f"Errore Graph Search: {e}"}
+        print(f"[Router] Graph Search Error: {e}")
+        result = {"error": f"Graph Search Error: {e}"}
         found_ids = []
         inp, out, cost = 0, 0, 0.0
         
@@ -199,7 +254,8 @@ def graph_search_node(state: AgentState):
 
 def sql_search_node(state: AgentState):
     """Executes the search on the SQL database using the isolated module."""
-    cb = GroqTokenCallback(model_name="llama-3.1-8b-instant")
+    model_id = "openai/gpt-oss-20b"
+    cb = TokenCallback(model_name=model_id)
     query = state.get("sql_query") or state["query"]
     print(f"[Router] Executing SQL Search for: {query}")
     
@@ -218,8 +274,8 @@ def sql_search_node(state: AgentState):
 
 def route_after_graph(state: AgentState):
     """
-    Analizza la stringa dentro state['graph_result']. 
-    Se trova ID, li salva e va a lookup, altrimenti va a late_fusion.
+    Analyzes the string within state['graph_result']. 
+    If IDs are found, it routes to lookup, otherwise it routes to late_fusion.
     """
     graph_res_str = str(state.get("graph_result", ""))
     found_ids = list(set(re.findall(r'\bns/[\w-]+\b', graph_res_str)))
@@ -231,14 +287,14 @@ def route_after_graph(state: AgentState):
     return "late_fusion"
 
 def lookup_node(state: AgentState):
-    """Esegue la funzione di lookup se sono stati trovati degli ID."""
+    """Executes the lookup function if IDs were found."""
     ns_ids = state.get("ns_ids", [])
-    print(f"[Router] Esecuzione Lookup per gli IDs: {ns_ids}")
+    print(f"[Router] Executing Lookup for IDs: {ns_ids}")
     
     lookup_results = {}
     if ns_ids:
         try:
-            # Esegue la query Cypher usando la connessione di GraphRetriever
+            # Execute Cypher query using GraphRetriever connection
             cypher_query = "MATCH (n) WHERE n.center IN $ids RETURN n.center AS id, n.title AS title, labels(n) AS type"
             res = graph_retriever.graph.query(cypher_query, {"ids": ns_ids})
             
@@ -246,23 +302,20 @@ def lookup_node(state: AgentState):
                 lookup_results[r['id']] = r['title']
                 
         except Exception as e:
-            print(f"[Router] Errore Lookup: {e}")
+            print(f"[Router] Lookup Error: {e}")
             
     return {"lookup_results": lookup_results}
 
 def late_fusion_node(state: AgentState):
     """
-    Raccoglie i risultati di Vector, Graph e Lookup.
-    Usa un LLM per fonderli in una risposta unificata.
+    Collects results from Vector, Graph, and Lookup.
+    Uses an LLM to fuse them into a unified response.
     """
-    print("[Router] Esecuzione Late Fusion Node")
+    print("[Router] Executing Late Fusion Node")
     
-    # Inizializza LLM
-    llm = ChatGroq(
-        temperature=0, 
-        groq_api_key=GROQ_API_KEY, 
-        model_name="openai/gpt-oss-20b"
-    )
+    # Initialize LLM - Update model_id here to switch to Claude or others
+    model_id = "openai/gpt-oss-120b"
+    llm = get_chat_model(model_id=model_id, temperature=0.0)
     
     prompt = ChatPromptTemplate.from_messages([
         ("system", """You are an analytical medical assistant. You will receive text snippets (from PubMed) and/or records extracted from a relational database (e.g., clinical trials).
@@ -316,7 +369,7 @@ SQL Context:
     
     chain = prompt | llm
     
-    # Prepara input per LLM
+    # Prepare LLM input
     query = state.get("query", "")
     vector_res = state.get("vector_results", "")
     graph_res = state.get("graph_result", "")
@@ -331,24 +384,27 @@ SQL Context:
         "sql_res": str(sql_res)
     })
     
-    usage = response.response_metadata.get('token_usage', {})
-    inp = usage.get('prompt_tokens', 0)
-    out = usage.get('completion_tokens', 0)
-    pricing = LLM_PRICING.get("openai/gpt-oss-20b", {"input": 0.0, "output": 0.0})
+    # Handle usage correctly for both Groq and OpenAI/Mantle structures
+    usage = response.response_metadata.get('token_usage', response.response_metadata.get('usage', {}))
+    if hasattr(usage, 'prompt_tokens'):
+        inp = usage.prompt_tokens
+        out = usage.completion_tokens
+    else:
+        inp = usage.get('prompt_tokens', 0)
+        out = usage.get('completion_tokens', 0)
+        
+    pricing = LLM_PRICING.get(model_id, {"input": 0.0, "output": 0.0})
     cost = (inp * pricing["input"]) + (out * pricing["output"])
     
     return {"final_answer": response.content, "input_tokens": inp, "output_tokens": out, "total_cost": cost}
 
 def direct_answer_node(state: AgentState):
-    """Nodo per rispondere direttamente senza RAG (selezionato dal RL Router quando non serve interrogare DB)."""
-    print("[Router] Esecuzione Direct Answer Node (No Retrieval)")
+    """Node for answering directly without RAG (selected by RL Router when DB query is unnecessary)."""
+    print("[Router] Executing Direct Answer Node (No Retrieval)")
     query = state.get("query", "")
     
-    llm = ChatGroq(
-        temperature=0, 
-        groq_api_key=GROQ_API_KEY, 
-        model_name="llama-3.1-8b-instant"
-    )
+    model_id = "openai/gpt-oss-20b"
+    llm = get_chat_model(model_id=model_id, temperature=0.0)
     
     prompt = ChatPromptTemplate.from_messages([
         ("system", "You are a helpful assistant. Answer the user's question as directly and concisely as possible."),
@@ -358,20 +414,25 @@ def direct_answer_node(state: AgentState):
     chain = prompt | llm
     try:
         response = chain.invoke({"query": query})
-        usage = response.response_metadata.get('token_usage', {})
-        inp = usage.get('prompt_tokens', 0)
-        out = usage.get('completion_tokens', 0)
-        pricing = LLM_PRICING.get("llama-3.1-8b-instant", {"input": 0.0, "output": 0.0})
+        usage = response.response_metadata.get('token_usage', response.response_metadata.get('usage', {}))
+        if hasattr(usage, 'prompt_tokens'):
+            inp = usage.prompt_tokens
+            out = usage.completion_tokens
+        else:
+            inp = usage.get('prompt_tokens', 0)
+            out = usage.get('completion_tokens', 0)
+            
+        pricing = LLM_PRICING.get(model_id, {"input": 0.0, "output": 0.0})
         cost = (inp * pricing["input"]) + (out * pricing["output"])
         return {"final_answer": response.content, "input_tokens": inp, "output_tokens": out, "total_cost": cost}
     except Exception as e:
-        print(f"[Router] Errore Direct Answer: {e}")
-        return {"final_answer": "Si è verificato un errore.", "input_tokens": 0, "output_tokens": 0, "total_cost": 0.0}
+        print(f"[Router] Direct Answer Error: {e}")
+        return {"final_answer": "An error occurred during processing.", "input_tokens": 0, "output_tokens": 0, "total_cost": 0.0}
 
-# 1. Inizializza il StateGraph
+# 1. Initialize StateGraph
 workflow = StateGraph(AgentState)
 
-# 2. Aggiunge i nodi
+# 2. Add nodes
 workflow.add_node("parse_query", parse_query_node)
 workflow.add_node("vector_search", vector_search_node)
 workflow.add_node("graph_search", graph_search_node)
@@ -380,12 +441,12 @@ workflow.add_node("lookup", lookup_node)
 workflow.add_node("late_fusion", late_fusion_node)
 workflow.add_node("direct_answer", direct_answer_node)
 
-# 3. Definisce le connessioni base
+# 3. Define base connections
 workflow.add_edge(START, "parse_query")
 
-# 5. L'Edge Condizionale Semplificato
+# 5. Simplified Conditional Edge
 def route_after_parse(state: AgentState):
-    # Il nodo precedente ha già preso tutte le decisioni!
+    # The previous node has already made all routing decisions!
     return state["routing_decision"]
 
 workflow.add_conditional_edges(
@@ -394,11 +455,11 @@ workflow.add_conditional_edges(
     ["vector_search", "graph_search", "sql_search", "direct_answer"]
 )
 
-# vector_search e sql_search vanno dritti a late_fusion
+# vector_search and sql_search proceed directly to late_fusion
 workflow.add_edge("vector_search", "late_fusion")
 workflow.add_edge("sql_search", "late_fusion")
 
-# graph_search usa l'edge condizionale
+# graph_search uses the conditional edge
 workflow.add_conditional_edges(
     "graph_search",
     route_after_graph,
@@ -408,23 +469,23 @@ workflow.add_conditional_edges(
     }
 )
 
-# Se lookup viene eseguito, confluisce in late_fusion
+# If lookup is executed, it flows into late_fusion
 workflow.add_edge("lookup", "late_fusion")
 
-# I nodi di generazione terminano l'esecuzione
+# Generation nodes terminate execution
 workflow.add_edge("late_fusion", END)
 workflow.add_edge("direct_answer", END)
 
-# 7. Compila il grafo in un'applicazione eseguibile
+# 7. Compile graph into an executable application
 app = workflow.compile()
 
 if __name__ == "__main__":
-    # Test 1: Query senza ID "ns/" -> Non eseguirà la lookup
+    # Test 1: Query without "ns/" IDs -> Will not execute lookup
     print("--- Test 1 ---")
-    state1 = app.invoke({"query": "Qual è il significato della vita?"})
-    print(f"Stato Finale 1: {state1}\n")
+    state1 = app.invoke({"query": "What are the most recent therapeutic developments mentioned in the scientific literature?"})
+    print(f"Final State 1: {state1}\n")
     
-    # Test 2: Query con ID "ns/" -> Eseguirà la lookup in parallelo agli altri
+    # Test 2: Query with "ns/" IDs -> Will execute lookup in parallel with others
     print("--- Test 2 ---")
-    state2 = app.invoke({"query": "Dammi i log dell'istanza ns/server-prod-01 e del nodo ns/router-02"})
-    print(f"Stato Finale 2: {state2}\n")
+    state2 = app.invoke({"query": "Retrieve the instance logs for ns/server-prod-01 and node ns/router-02."})
+    print(f"Final State 2: {state2}\n")

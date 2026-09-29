@@ -8,16 +8,16 @@ from transformers import DistilBertTokenizer, DistilBertForSequenceClassificatio
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 
-# Caricamento variabili d'ambiente
+# Load environment variables
 load_dotenv()
 from schema_extractor import get_compact_schemas
 
-# Configurazione Base
+# Base Configuration
 MODEL_NAME_OR_PATH = "distilbert-base-multilingual-cased"
 EPOCHS = 3
 LEARNING_RATE = 2e-5
 
-# Mappatura delle categorie a interi
+# Category to integer mapping
 ACTIONS_MAP = {
     "no_retrieval": 0,
     "vector": 1,
@@ -28,48 +28,48 @@ ACTIONS_MAP = {
 
 def train_sft():
     """
-    Esegue un Supervised Fine-Tuning iniziale (SFT) sul dataset di warmup.
-    Questo dà al modello una buona 'base' prima dell'RL dinamico.
+    Executes an initial Supervised Fine-Tuning (SFT) on the warmup dataset.
+    This gives the model a solid 'baseline' before dynamic RL.
     """
-    print("[SFT Trainer] Avvio Supervised Fine-Tuning iniziale...")
+    print("[SFT Trainer] Starting initial Supervised Fine-Tuning...")
     
-    # 1. Caricamento del dataset
+    # 1. Dataset loading
     project_root = os.path.dirname(os.path.dirname(__file__))
     file_path = os.path.join(project_root, "data", "synthetic_warmup_queries.json")
     
     if not os.path.exists(file_path):
-        print(f"[SFT Trainer] Errore: File {file_path} non trovato. Lancia auto_warmup.py prima.")
+        print(f"[SFT Trainer] Error: File {file_path} not found. Run auto_warmup.py first.")
         return
         
     with open(file_path, "r", encoding="utf-8") as f:
         dataset = json.load(f)
         
     if not dataset:
-        print("[SFT Trainer] Dataset vuoto.")
+        print("[SFT Trainer] Empty dataset.")
         return
         
-    # Shuffle del dataset per prevenire catastrophic forgetting
+    # Dataset shuffle to prevent catastrophic forgetting
     random.shuffle(dataset)
-    print(f"[SFT Trainer] Trovate {len(dataset)} query. Acquisizione degli schemi...")
+    print(f"[SFT Trainer] Found {len(dataset)} queries. Fetching schemas...")
     
-    # 2. Acquisizione Schemi Compatti (Lo Stato)
+    # 2. Fetch Compact Schemas (The State)
     schemas = get_compact_schemas()
     
-    # 3. Setup PyTorch e Modello
+    # 3. PyTorch and Model Setup
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"[SFT Trainer] Device in uso: {device}")
+    print(f"[SFT Trainer] Device in use: {device}")
     
     tokenizer = DistilBertTokenizer.from_pretrained(MODEL_NAME_OR_PATH)
-    # num_labels=5 copre le nostre 5 categorie di routing
+    # num_labels=5 covers our 5 routing categories
     model = DistilBertForSequenceClassification.from_pretrained(MODEL_NAME_OR_PATH, num_labels=5)
     model.to(device)
     model.train()
     
     optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE)
-    # Loss Categorica classica per task di classificazione Supervisionati
+    # Standard Categorical Loss for Supervised classification tasks
     loss_fn = nn.CrossEntropyLoss()
     
-    # 4. Loop di Addestramento
+    # 4. Training Loop
     for epoch in range(1, EPOCHS + 1):
         epoch_loss = 0.0
         correct_predictions = 0
@@ -78,24 +78,24 @@ def train_sft():
             query = item.get("query", "")
             expected_route = item.get("expected_route", "")
             
-            # Map stringa a int (fallback a 4 se non trovata)
+            # Map string to int (fallback to 4 if not found)
             target_idx = ACTIONS_MAP.get(expected_route, 4)
             
-            # Ricostruisce la stringa di input esattamente come il router live
+            # Reconstruct the input string exactly as the live router does
             state_text = f"Query: {query}\nVector Meta: {schemas['vector']}\nGraph Meta: {schemas['graph']}\nSQL Meta: {schemas['sql']}"
             
-            # Tokenizzazione
+            # Tokenization
             inputs = tokenizer(state_text, return_tensors="pt", truncation=True, padding=True)
             inputs = {k: v.to(device) for k, v in inputs.items()}
             
-            # Tensore target (CrossEntropyLoss accetta 1D tensor di classi index)
+            # Target tensor (CrossEntropyLoss accepts 1D tensor of class indices)
             target_tensor = torch.tensor([target_idx], dtype=torch.long).to(device)
             
             # Forward Pass
             optimizer.zero_grad()
             outputs = model(**inputs)
             
-            # Calcolo Loss sui logits grezzi (non serve softmax perché è interno a CrossEntropyLoss)
+            # Loss calculation on raw logits (softmax is internal to CrossEntropyLoss)
             loss = loss_fn(outputs.logits, target_tensor)
             
             # Backpropagation
@@ -104,33 +104,33 @@ def train_sft():
             
             epoch_loss += loss.item()
             
-            # Calcolo accuracy (opzionale per display)
+            # Accuracy calculation (optional for display)
             pred_idx = torch.argmax(outputs.logits, dim=-1).item()
             if pred_idx == target_idx:
                 correct_predictions += 1
                 
-        # Statistiche di fine Epoca
+        # End of Epoch Statistics
         avg_loss = epoch_loss / len(dataset)
         accuracy = (correct_predictions / len(dataset)) * 100
-        print(f"[SFT Trainer] Epoca {epoch}/{EPOCHS} | Loss Media: {avg_loss:.4f} | Accuratezza: {accuracy:.2f}%")
+        print(f"[SFT Trainer] Epoch {epoch}/{EPOCHS} | Average Loss: {avg_loss:.4f} | Accuracy: {accuracy:.2f}%")
         
-    # 5. Salvataggio del modello addestrato (Sovrascrive i pesi in locale)
-    print(f"[SFT Trainer] Addestramento concluso! Salvataggio pesi in '{MODEL_NAME_OR_PATH}'...")
+    # 5. Save the trained model (Overwrites local weights)
+    print(f"[SFT Trainer] Training complete! Saving weights to '{MODEL_NAME_OR_PATH}'...")
     model.save_pretrained(MODEL_NAME_OR_PATH)
     tokenizer.save_pretrained(MODEL_NAME_OR_PATH)
-    print("[SFT Trainer] Modello salvato con successo. Il Router è pronto all'uso!")
+    print("[SFT Trainer] Model successfully saved. The Router is ready to use!")
     
-    # 6. Aggiornamento dello stato nel Database per le query di warmup
+    # 6. Update database state for warmup queries
     try:
-        print("[SFT Trainer] Contrassegno dei log di warmup come processati nel database...")
+        print("[SFT Trainer] Marking warmup logs as processed in the database...")
         postgres_uri = os.getenv("POSTGRES_URI")
         if postgres_uri and "TUAPASSWORD" not in postgres_uri:
             engine = create_engine(postgres_uri)
             with engine.begin() as conn:
                 conn.execute(text("UPDATE rl_logs SET processed = TRUE WHERE processed = FALSE;"))
-            print("[SFT Trainer] Database aggiornato con successo.")
+            print("[SFT Trainer] Database successfully updated.")
     except Exception as e:
-        print(f"[SFT Trainer] Impossibile aggiornare il database: {e}")
+        print(f"[SFT Trainer] Unable to update the database: {e}")
 
 if __name__ == "__main__":
     train_sft()

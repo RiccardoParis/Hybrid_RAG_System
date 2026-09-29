@@ -5,6 +5,7 @@ from langchain_community.utilities import SQLDatabase
 from langchain_community.tools import QuerySQLDatabaseTool
 from langchain_classic.chains import create_sql_query_chain
 from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
 from langchain_core.prompts import PromptTemplate
 
 load_dotenv()
@@ -43,14 +44,28 @@ def clean_sql_output(text: str) -> str:
     return text.strip()
 
 class SQLRetriever:
-    def __init__(self, model_name="llama-3.3-70b-versatile", temperature=0):
+    def __init__(self, model_name="openai/gpt-oss-20b", temperature=0):
         postgres_uri = os.getenv("POSTGRES_URI", "")
         if not postgres_uri or "TUAPASSWORD" in postgres_uri:
             self.chain = None
             return
             
         self.db = SQLDatabase.from_uri(postgres_uri, sample_rows_in_table_info=0)
-        self.llm = ChatGroq(model=model_name, temperature=temperature)
+        
+        # Dynamic LLM Initialization (Supports Groq and AWS Bedrock Mantle)
+        if "anthropic" in model_name or "meta.llama" in model_name:
+            aws_api_key = os.getenv("AWS_MANTLE_API_KEY")
+            aws_region = os.getenv("AWS_MANTLE_REGION", "us-east-1")
+            if not aws_api_key:
+                raise ValueError("AWS_MANTLE_API_KEY is missing in environment variables.")
+            self.llm = ChatOpenAI(
+                model=model_name,
+                temperature=temperature,
+                api_key=aws_api_key,
+                base_url=f"https://bedrock-mantle.{aws_region}.api.aws/v1"
+            )
+        else:
+            self.llm = ChatGroq(model=model_name, temperature=temperature)
         
         write_query = create_sql_query_chain(self.llm, self.db, prompt=SQL_PROMPT_TEMPLATE)
         execute_query = QuerySQLDatabaseTool(db=self.db)
@@ -59,18 +74,18 @@ class SQLRetriever:
 
     def ask(self, question: str, callbacks=None) -> str:
         if not self.chain:
-            return "Database SQL non configurato."
+            return "SQL Database not configured."
         
-        # 1. Invia esplicitamente top_k=15 al prompt
+        # 1. Explicitly send top_k=15 to the prompt
         raw_result = self.chain.invoke(
             {"question": question, "top_k": 15}, 
             config={"callbacks": callbacks}
         )
         
-        # 2. GUARDA DI SICUREZZA IN PYTHON:
-        # Se il risultato supera 4000 caratteri (~1000 token), lo tronchiamo in modo sicuro
+        # 2. PYTHON SAFETY GUARDRAIL:
+        # If the result exceeds 4000 characters (~1000 tokens), truncate it safely
         if isinstance(raw_result, str) and len(raw_result) > 4000:
-            print(f"[SQLRetriever - WARNING] Risultato SQL troppo lungo ({len(raw_result)} caratteri). Troncamento applicato.")
-            raw_result = raw_result[:4000] + "\n... [Risultati SQL troncati per eccessiva lunghezza]"
+            print(f"[SQLRetriever - WARNING] SQL result too long ({len(raw_result)} characters). Truncation applied.")
+            raw_result = raw_result[:4000] + "\n... [SQL results truncated due to excessive length]"
             
         return raw_result

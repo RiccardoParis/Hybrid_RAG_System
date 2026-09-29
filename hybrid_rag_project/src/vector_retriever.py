@@ -3,6 +3,7 @@ import re
 import json
 import random
 from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from config import GROQ_API_KEY
 from langchain_qdrant import QdrantVectorStore
@@ -14,11 +15,11 @@ class VectorRetriever:
     def __init__(self, collection_name: str = "hybrid_rag", model_name: str = "intfloat/multilingual-e5-base"):
         self.embeddings = HuggingFaceEmbeddings(model_name=model_name)
         
-        # Inizializza Qdrant Client
+        # Initialize Qdrant Client
         api_key = QDRANT_API_KEY if QDRANT_API_KEY and QDRANT_API_KEY != "your_qdrant_api_key_here" else None
         self.client = QdrantClient(url=QDRANT_URL, api_key=api_key)
         
-        # Configura il Vector Store
+        # Configure Vector Store
         self.vector_store = QdrantVectorStore(
             client=self.client,
             collection_name=collection_name,
@@ -26,42 +27,53 @@ class VectorRetriever:
         )
 
     def add_documents(self, documents):
-        """Aggiunge documenti al vector store."""
+        """Adds documents to the vector store."""
         return self.vector_store.add_documents(documents)
 
     def search(self, query: str, k: int = 4):
-        """Esegue una ricerca di similarità."""
+        """Executes a similarity search."""
         return self.vector_store.similarity_search(query, k=k)
 
     def generate_and_save_metadata(self, documents: list):
-        """Usa un LLM leggero per aggiornare dinamicamente i metadati del VectorDB, integrando i vecchi con i nuovi."""
+        """Uses a lightweight LLM to dynamically update VectorDB metadata, merging old and new."""
         if not documents:
             return
             
-        print(f"[VectorDB] Generazione/Aggiornamento automatico dei metadati in corso...")
+        print(f"[VectorDB] Automatic generation/update of metadata in progress...")
         
         project_root = os.path.dirname(os.path.dirname(__file__))
         data_dir = os.path.join(project_root, "data")
         os.makedirs(data_dir, exist_ok=True)
         meta_path = os.path.join(data_dir, "vector_metadata.json")
         
-        # 1. Recupera i metadati esistenti (se ci sono)
-        existing_detailed_meta = "Nessun contesto precedente."
+        # 1. Retrieve existing metadata (if any)
+        existing_detailed_meta = "No previous context."
         if os.path.exists(meta_path):
             try:
                 with open(meta_path, "r", encoding="utf-8") as f:
                     old_data = json.load(f)
-                    existing_detailed_meta = old_data.get("detailed", "Nessun contesto precedente.")
+                    existing_detailed_meta = old_data.get("detailed", "No previous context.")
             except Exception:
                 pass
 
-        # 2. Campiona i nuovi documenti
+        # 2. Sample new documents
         sample_size = min(10, len(documents))
         sample_docs = random.sample(documents, sample_size)
         sample_text = "\n\n---\n\n".join([doc.page_content[:500] for doc in sample_docs])
         
-        # 3. Inizializza LLM e Prompt per l'integrazione
-        llm = ChatGroq(temperature=0, groq_api_key=GROQ_API_KEY, model_name="llama-3.1-8b-instant")
+        # 3. Initialize LLM and Prompt for integration
+        model_id = "openai/gpt-oss-20b"
+        if "anthropic" in model_id or "meta.llama" in model_id:
+            aws_api_key = os.getenv("AWS_MANTLE_API_KEY")
+            aws_region = os.getenv("AWS_MANTLE_REGION", "us-east-1")
+            llm = ChatOpenAI(
+                model=model_id,
+                temperature=0,
+                api_key=aws_api_key,
+                base_url=f"https://bedrock-mantle.{aws_region}.api.aws/v1"
+            )
+        else:
+            llm = ChatGroq(temperature=0, groq_api_key=GROQ_API_KEY, model_name=model_id)
         
         prompt = ChatPromptTemplate.from_messages([
             ("system", """You are a Data Steward for a vector database. The database already contained documents described in the 'Previous Context'. Now, 'New Documents' are about to be inserted.
@@ -89,7 +101,7 @@ No additional markdown, only the JSON code."""),
             with open(meta_path, "w", encoding="utf-8") as f:
                 json.dump(metadata, f, indent=4, ensure_ascii=False)
                 
-            print(f"[VectorDB] Metadati integrati e salvati in {meta_path}")
+            print(f"[VectorDB] Metadata successfully integrated and saved in {meta_path}")
             
         except Exception as e:
-            print(f"[VectorDB] Errore durante l'aggiornamento dei metadati: {e}")
+            print(f"[VectorDB] Error updating metadata: {e}")

@@ -6,7 +6,7 @@ from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, Table
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from dotenv import load_dotenv
 
-# Importiamo le funzioni che hai già per Neo4j e Qdrant
+# Import Neo4j and Qdrant functions
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from ingest import ingest_document_to_vector, ingest_graph_from_json
 
@@ -15,7 +15,7 @@ POSTGRES_URI = os.getenv("POSTGRES_URI", "postgresql://postgres:Password@127.0.0
 
 Base = declarative_base()
 
-# --- DEFINIZIONE SCHEMA SQL ---
+# --- SQL SCHEMA DEFINITION ---
 study_sponsor_table = Table(
     'study_sponsors', Base.metadata,
     Column('study_nct_id', String, ForeignKey('studies.nct_id'), primary_key=True),
@@ -59,28 +59,28 @@ class Location(Base):
     country = Column(String)
     study = relationship('Study', back_populates='locations')
 
-# --- FUNZIONE INGESTIONE SQL ---
+# --- SQL INGESTION FUNCTION ---
 def ingest_sql_from_json(json_path):
-    print(f"[SQL] Connessione a PostgreSQL...")
+    print(f"[SQL] Connecting to PostgreSQL...")
     engine = create_engine(POSTGRES_URI)
     
-    # RIMOSSO: Base.metadata.drop_all(engine) <- Evitiamo di cancellare i vecchi dati!
-    # create_all creerà le tabelle solo se non esistono già
+    # REMOVED: Base.metadata.drop_all(engine) <- Avoid deleting old data!
+    # create_all will create tables only if they don't already exist
     Base.metadata.create_all(engine)
     
     Session = sessionmaker(bind=engine)
     session = Session()
 
-    print(f"[SQL] Caricamento dati da {json_path}...")
+    print(f"[SQL] Loading data from {json_path}...")
     with open(json_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
 
-    # Pre-carichiamo cache per evitare errori di unicità
+    # Preload cache to avoid uniqueness errors
     sponsor_cache = {s.name: s for s in session.query(Sponsor).all()}
     drug_cache = {d.name: d for d in session.query(Drug).all()}
 
     for row in data:
-        # 1. Farmaco
+        # 1. Drug
         d_name = row.get('drug_name', 'Unknown')
         if d_name not in drug_cache:
             drug = Drug(name=d_name)
@@ -90,11 +90,11 @@ def ingest_sql_from_json(json_path):
             
         drug_obj = drug_cache[d_name]
 
-        # Evita duplicati di trial se esegui lo script due volte
+        # Avoid trial duplicates if the script is executed twice
         if session.query(Study).filter_by(nct_id=row['nct_id']).first():
             continue
 
-        # 2. Studio Clinico
+        # 2. Clinical Study
         study = Study(
             nct_id=row['nct_id'],
             drug_id=drug_obj.id,
@@ -129,61 +129,62 @@ def ingest_sql_from_json(json_path):
             session.add(location)
 
     session.commit()
-    print(f"[SQL] Ingestione PostgreSQL completata! Aggiunti {len(data)} nuovi trial clinici.")
+    print(f"[SQL] PostgreSQL ingestion completed! Added {len(data)} new clinical trials.")
 
-# --- ORCHESTRATORE PRINCIPALE ---
+# --- MAIN ORCHESTRATOR ---
 def main():
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     texts_dir = os.path.join(base_dir, "data", "texts")
     tables_dir = os.path.join(base_dir, "data", "tables")
     graphs_dir = os.path.join(base_dir, "data", "graphs")
 
-    print("=== AVVIO INGESTIONE MASSIVA DOMINIO MEDICO ===")
+    print("=== STARTING BULK MEDICAL DOMAIN INGESTION ===")
 
-    # 1. SQL Ingestion (Tumore della Pelle)
-    print("\n--- 1. INGESTIONE POSTGRESQL (Trial Clinici) ---")
+    # 1. SQL Ingestion (Skin Cancer)
+    print("\n--- 1. POSTGRESQL INGESTION (Clinical Trials) ---")
     sql_json = os.path.join(tables_dir, "skin_cancer_trials_data.json")
     if os.path.exists(sql_json):
         ingest_sql_from_json(sql_json)
     else:
-        print(f"[ATTENZIONE] File {sql_json} non trovato.")
+        print(f"[WARNING] File {sql_json} not found.")
 
-    # 2. Graph Ingestion (Tumore della Pelle)
-    print("\n--- 2. INGESTIONE NEO4J (Knowledge Graph) ---")
+    # 2. Graph Ingestion (Skin Cancer)
+    print("\n--- 2. NEO4J INGESTION (Knowledge Graph) ---")
     graph_json = os.path.join(graphs_dir, "skin_cancer_graph.json")
     if os.path.exists(graph_json):
         ingest_graph_from_json(graph_json)
     else:
-        print(f"[ATTENZIONE] File {graph_json} non trovato.")
+        print(f"[WARNING] File {graph_json} not found.")
 
-    # 3. Vector Ingestion (Abstract PubMed)
-    print("\n--- 3. INGESTIONE QDRANT E METADATI (Paper PubMed) ---")
+    # 3. Vector Ingestion (PubMed Abstracts)
+    print("\n--- 3. QDRANT & METADATA INGESTION (PubMed Papers) ---")
     text_files = glob.glob(os.path.join(texts_dir, "*.txt"))
     if not text_files:
-        print(f"[ATTENZIONE] Nessun file di testo trovato in {texts_dir}.")
+        print(f"[WARNING] No text files found in {texts_dir}.")
     else:
         all_docs = []
         for idx, file_path in enumerate(text_files, 1):
             filename = os.path.basename(file_path)
-            print(f"[{idx}/{len(text_files)}] Vettorizzazione: {filename}...")
-            # Importante: usiamo la modifica a ingest.py per NON generare i metadati 113 volte
+            print(f"[{idx}/{len(text_files)}] Vectorizing: {filename}...")
+            
+            # Important: we use the modification in ingest.py to NOT generate metadata repeatedly
             try:
                 docs = ingest_document_to_vector(file_path, generate_metadata=False)
             except TypeError:
-                # Fallback se non hai ancora aggiornato ingest.py con il parametro generate_metadata
+                # Fallback if ingest.py hasn't been updated with the generate_metadata parameter yet
                 docs = ingest_document_to_vector(file_path)
             
             if docs:
                 all_docs.extend(docs)
                 
-        print("[VECTOR] Ingestione chunk su Qdrant completata!")
+        print("[VECTOR] Chunk ingestion to Qdrant completed!")
         
-        print("[VECTOR] Generazione sintesi globale dei metadati (Llama-3)...")
+        print("[VECTOR] Generating global metadata summary (LLM)...")
         from vector_retriever import VectorRetriever
         vector_retriever = VectorRetriever()
         vector_retriever.generate_and_save_metadata(all_docs)
 
-    print("\n=== TUTTI I NUOVI DATI SONO STATI INGERITI CON SUCCESSO! ===")
+    print("\n=== ALL NEW DATA HAS BEEN SUCCESSFULLY INGESTED! ===")
 
 if __name__ == "__main__":
     main()

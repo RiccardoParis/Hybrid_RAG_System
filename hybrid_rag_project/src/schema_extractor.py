@@ -4,12 +4,12 @@ from sqlalchemy import create_engine, inspect
 from neo4j import GraphDatabase
 from dotenv import load_dotenv
 
-# Carica l'ambiente per ottenere le stringhe di connessione
+# Load environment to get connection strings
 load_dotenv()
 from config import NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD
 
 def _extract_sql_raw():
-    """Estrae i dati raw (tabelle, colonne e tipi) da PostgreSQL."""
+    """Extracts raw data (tables, columns, and types) from PostgreSQL."""
     postgres_uri = os.getenv("POSTGRES_URI", "")
     if not postgres_uri or "TUAPASSWORD" in postgres_uri:
         return []
@@ -20,41 +20,41 @@ def _extract_sql_raw():
         inspector = inspect(engine)
         tables = inspector.get_table_names()
 
-        # Lista delle tabelle da nascondere all'LLM
-        exluded_tables = ['rl_logs', 'alembic_version']
+        # List of tables to hide from the LLM
+        excluded_tables = ['rl_logs', 'alembic_version']
         
         for table in tables:
-            if table in exluded_tables:
+            if table in excluded_tables:
                 continue
             
             columns = inspector.get_columns(table)
             tables_info.append({"name": table, "columns": columns})
         return tables_info
     except Exception as e:
-        print(f"[Schema Extractor] Errore connessione SQL: {e}")
+        print(f"[Schema Extractor] SQL connection error: {e}")
         return []
 
 def _extract_graph_raw():
-    """Estrae i dati raw (labels, relazioni e proprietà) da Neo4j."""
+    """Extracts raw data (labels, relationships, and properties) from Neo4j."""
     try:
         driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USERNAME, NEO4J_PASSWORD))
         
         with driver.session() as session:
-            # Recupera le labels
+            # Retrieve labels
             res_labels = session.run("CALL db.labels()")
             labels = [record["label"] for record in res_labels]
             
-            # Recupera i tipi di relazioni
+            # Retrieve relationship types
             res_rels = session.run("CALL db.relationshipTypes()")
             rels = [record["relationshipType"] for record in res_rels]
             
-            # Recupera le proprietà dei nodi
+            # Retrieve node properties
             properties = {}
             try:
                 res_props = session.run("CALL db.schema.nodeTypeProperties() YIELD nodeType, propertyName, propertyTypes")
                 for record in res_props:
                     node_type = record["nodeType"]
-                    # node_type restituisce formati come ':`NomeLabel`'
+                    # node_type returns formats like ':`LabelName`'
                     clean_label = node_type.replace(':`', '').replace('`', '')
                     prop = record["propertyName"]
                     ptypes = record["propertyTypes"]
@@ -64,16 +64,16 @@ def _extract_graph_raw():
                         properties[clean_label] = []
                     properties[clean_label].append(f"{prop} ({p_type})")
             except Exception as inner_e:
-                print(f"[Schema Extractor] Attenzione, nodeTypeProperties non disponibile: {inner_e}")
+                print(f"[Schema Extractor] Warning, nodeTypeProperties not available: {inner_e}")
             
         driver.close()
         return {"labels": labels, "relationships": rels, "properties": properties}
     except Exception as e:
-        print(f"[Schema Extractor] Errore connessione Graph: {e}")
+        print(f"[Schema Extractor] Graph connection error: {e}")
         return {"labels": [], "relationships": [], "properties": {}}
 
 def _extract_vector_raw():
-    """Legge i metadati del VectorDB generati dinamicamente durante l'ingestione."""
+    """Reads VectorDB metadata dynamically generated during ingestion."""
     project_root = os.path.dirname(os.path.dirname(__file__))
     meta_path = os.path.join(project_root, "data", "vector_metadata.json")
     
@@ -82,30 +82,30 @@ def _extract_vector_raw():
             with open(meta_path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception as e:
-            print(f"[Schema Extractor] Errore lettura vector_metadata.json: {e}")
+            print(f"[Schema Extractor] Error reading vector_metadata.json: {e}")
             
-    # Fallback di sicurezza
+    # Security fallback
     return {
         "compact": "UNSTRUCTURED TEXT: Generic documents.",
         "detailed": "Vector documents without automatic profiling."
     }
 
 def get_compact_schemas():
-    """Restituisce un dizionario di schemi sintetici, ideale per il RLBanditRouter."""
-    print("[Schema Extractor] Costruzione schemi COMPATTI in corso...")
+    """Returns a dictionary of synthetic schemas, ideal for the RLBanditRouter."""
+    print("[Schema Extractor] Building COMPACT schemas...")
     sql_raw = _extract_sql_raw()
     graph_raw = _extract_graph_raw()
     
-    # Compatto SQL
+    # Compact SQL
     sql_tables = ", ".join([t["name"] for t in sql_raw]) if sql_raw else "Empty or offline SQL Database."
     sql_compact = f"QUANTITATIVE TABULAR DATA: Counts, sums, ids (NCT...), phases, enrolled patients, tables: {sql_tables}"
     
-    # Compatto Graph
+    # Compact Graph
     g_labels = ", ".join(graph_raw["labels"]) if graph_raw["labels"] else "No nodes"
     g_rels = ", ".join(graph_raw["relationships"]) if graph_raw["relationships"] else "No relationships"
     graph_compact = f"SEMANTIC NETWORKS: Triples, paths, direct relationships between Nodes: {g_labels} and Edges: {g_rels}"
     
-    # Vector DB (Prescrittivo)
+    # Vector DB (Prescriptive)
     vector_compact = _extract_vector_raw()["compact"]
     
     return {
@@ -115,19 +115,19 @@ def get_compact_schemas():
     }
 
 def get_detailed_schemas():
-    """Restituisce un dizionario di schemi completi, ideale per i generatori Cypher/SQL."""
-    print("[Schema Extractor] Costruzione schemi DETTAGLIATI in corso...")
+    """Returns a dictionary of comprehensive schemas, ideal for Cypher/SQL generators."""
+    print("[Schema Extractor] Building DETAILED schemas...")
     sql_raw = _extract_sql_raw()
     graph_raw = _extract_graph_raw()
     
-    # Dettagliato SQL
+    # Detailed SQL
     sql_parts = []
     for t in sql_raw:
         cols_str = ", ".join([f"{c['name']} ({c['type']})" for c in t["columns"]])
         sql_parts.append(f"Table: {t['name']} | Columns: {cols_str}")
     sql_detailed = "\n".join(sql_parts) if sql_parts else "Empty or offline SQL Database."
     
-    # Dettagliato Graph
+    # Detailed Graph
     graph_parts = []
     if graph_raw["properties"]:
         for label, props in graph_raw["properties"].items():
@@ -140,7 +140,7 @@ def get_detailed_schemas():
     graph_parts.append(f"\nAvailable relationships: {g_rels}")
     graph_detailed = "\n".join(graph_parts)
     
-    # Vector DB (Dettagliato)
+    # Vector DB (Detailed)
     vector_detailed = _extract_vector_raw()["detailed"]
     
     return {
