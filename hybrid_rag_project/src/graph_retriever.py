@@ -44,7 +44,7 @@ Answer:"""
 )
 
 class GraphRetriever:
-    def __init__(self, model_name: str = "openai/gpt-oss-20b"):
+    def __init__(self, model_name: str = "qwen.qwen3-coder-480b-a35b-instruct"):
         # Initialize Neo4j graph connection
         self.graph = Neo4jGraph(
             url=NEO4J_URI, 
@@ -56,23 +56,19 @@ class GraphRetriever:
         self.graph.refresh_schema()
         
         # Dynamic LLM Initialization (Supports Groq and AWS Bedrock Mantle)
-        if "anthropic" in model_name or "meta.llama" in model_name:
+        if "." in model_name or ":" in model_name:
             aws_api_key = os.getenv("AWS_MANTLE_API_KEY")
             aws_region = os.getenv("AWS_MANTLE_REGION", "us-east-1")
             if not aws_api_key:
                 raise ValueError("AWS_MANTLE_API_KEY is missing in environment variables.")
             self.llm = ChatOpenAI(
                 model=model_name,
-                temperature=0,
+                temperature=0, # (o temperature=temperature per SQL)
                 api_key=aws_api_key,
                 base_url=f"https://bedrock-mantle.{aws_region}.api.aws/v1"
             )
         else:
-            self.llm = ChatGroq(
-                temperature=0, 
-                groq_api_key=GROQ_API_KEY, 
-                model_name=model_name
-            )
+            self.llm = ChatGroq(model_name=model_name, temperature=0, groq_api_key=GROQ_API_KEY) # (o temperature=temperature)
         
         # Configure Graph Cypher QA Chain
         self.chain = GraphCypherQAChain.from_llm(

@@ -7,6 +7,7 @@ from langchain_classic.chains import create_sql_query_chain
 from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import PromptTemplate
+from config import GROQ_API_KEY, AWS_MANTLE_API_KEY, AWS_MANTLE_BASE_URL
 
 load_dotenv()
 
@@ -44,7 +45,7 @@ def clean_sql_output(text: str) -> str:
     return text.strip()
 
 class SQLRetriever:
-    def __init__(self, model_name="openai/gpt-oss-20b", temperature=0):
+    def __init__(self, model_name="qwen.qwen3-coder-480b-a35b-instruct", temperature=0):
         postgres_uri = os.getenv("POSTGRES_URI", "")
         if not postgres_uri or "TUAPASSWORD" in postgres_uri:
             self.chain = None
@@ -53,19 +54,19 @@ class SQLRetriever:
         self.db = SQLDatabase.from_uri(postgres_uri, sample_rows_in_table_info=0)
         
         # Dynamic LLM Initialization (Supports Groq and AWS Bedrock Mantle)
-        if "anthropic" in model_name or "meta.llama" in model_name:
+        if "." in model_name or ":" in model_name:
             aws_api_key = os.getenv("AWS_MANTLE_API_KEY")
             aws_region = os.getenv("AWS_MANTLE_REGION", "us-east-1")
             if not aws_api_key:
                 raise ValueError("AWS_MANTLE_API_KEY is missing in environment variables.")
             self.llm = ChatOpenAI(
                 model=model_name,
-                temperature=temperature,
+                temperature=0, # (o temperature=temperature per SQL)
                 api_key=aws_api_key,
                 base_url=f"https://bedrock-mantle.{aws_region}.api.aws/v1"
             )
         else:
-            self.llm = ChatGroq(model=model_name, temperature=temperature)
+            self.llm = ChatGroq(model_name=model_name, temperature=0, groq_api_key=GROQ_API_KEY) # (o temperature=temperature)
         
         write_query = create_sql_query_chain(self.llm, self.db, prompt=SQL_PROMPT_TEMPLATE)
         execute_query = QuerySQLDatabaseTool(db=self.db)

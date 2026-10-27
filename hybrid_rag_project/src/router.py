@@ -17,8 +17,8 @@ LLM_PRICING = {
     "openai/gpt-oss-20b": {"input": 0.075 / 1e6, "output": 0.30 / 1e6},
     "openai/gpt-oss-120b": {"input": 0.15 / 1e6, "output": 0.60 / 1e6},
     # AWS Bedrock Pricing (Cost per 1M tokens)
-    "anthropic.claude-3-5-sonnet-20240620-v1:0": {"input": 3.00 / 1e6, "output": 15.00 / 1e6},
-    "meta.llama3-1-405b-instruct-v1:0": {"input": 2.40 / 1e6, "output": 2.40 / 1e6}
+    "qwen.qwen3-coder-30b-a3b-instruct": {"input": 0.15 / 1e6, "output": 0.60 / 1e6},
+    "qwen.qwen3-coder-480b-a35b-instruct": {"input": 0.45 / 1e6, "output": 1.80 / 1e6}
 }
 
 class TokenCallback(BaseCallbackHandler):
@@ -53,13 +53,13 @@ class TokenCallback(BaseCallbackHandler):
 
 def get_chat_model(model_id: str, temperature: float = 0.0):
     """
-    Dynamically initializes the correct LLM client based on the model ID.
-    If the model ID contains 'anthropic' or 'meta', it routes to AWS Bedrock Mantle.
-    Otherwise, it routes to Groq.
+    Inizializza dinamicamente il client corretto.
+    Il trucco del punto: se l'ID contiene un '.' (es. openai.gpt-5.4), è un modello AWS Mantle.
+    Se contiene uno '/' (es. openai/gpt-oss-20b), è un modello Groq.
     """
-    if "anthropic" in model_id or "meta.llama" in model_id:
+    if "." in model_id or ":" in model_id:
         if not AWS_MANTLE_API_KEY:
-            raise ValueError("AWS_MANTLE_API_KEY is missing in environment variables.")
+            raise ValueError("AWS_MANTLE_API_KEY mancante nel file .env.")
         return ChatOpenAI(
             model=model_id,
             temperature=temperature,
@@ -110,7 +110,7 @@ bandit_router = RLBanditRouter()
 # 3. Multi-Source Resolution using Detailed Schemas
 def resolve_multi_source(query: str, schemas: str):
     # Change the model here for testing. Example: "anthropic.claude-3-5-sonnet-20240620-v1:0"
-    model_id = "openai/gpt-oss-20b" 
+    model_id = "qwen.qwen3-coder-480b-a35b-instruct" 
     llm = get_chat_model(model_id=model_id, temperature=0.0)
     
     prompt = ChatPromptTemplate.from_messages([
@@ -232,7 +232,7 @@ def vector_search_node(state: AgentState):
 
 def graph_search_node(state: AgentState):
     """Executes search on the knowledge graph."""
-    model_id = "openai/gpt-oss-20b"
+    model_id = "qwen.qwen3-coder-480b-a35b-instruct"
     cb = TokenCallback(model_name=model_id)
     query = state.get("graph_query") or state["query"]
     print(f"[Router] Executing Graph Search for: {query}")
@@ -254,7 +254,7 @@ def graph_search_node(state: AgentState):
 
 def sql_search_node(state: AgentState):
     """Executes the search on the SQL database using the isolated module."""
-    model_id = "openai/gpt-oss-20b"
+    model_id = "qwen.qwen3-coder-480b-a35b-instruct"
     cb = TokenCallback(model_name=model_id)
     query = state.get("sql_query") or state["query"]
     print(f"[Router] Executing SQL Search for: {query}")
@@ -314,7 +314,7 @@ def late_fusion_node(state: AgentState):
     print("[Router] Executing Late Fusion Node")
     
     # Initialize LLM - Update model_id here to switch to Claude or others
-    model_id = "openai/gpt-oss-120b"
+    model_id = "qwen.qwen3-coder-480b-a35b-instruct"
     llm = get_chat_model(model_id=model_id, temperature=0.0)
     
     prompt = ChatPromptTemplate.from_messages([
@@ -403,7 +403,7 @@ def direct_answer_node(state: AgentState):
     print("[Router] Executing Direct Answer Node (No Retrieval)")
     query = state.get("query", "")
     
-    model_id = "openai/gpt-oss-20b"
+    model_id = "qwen.qwen3-coder-30b-a3b-instruct"
     llm = get_chat_model(model_id=model_id, temperature=0.0)
     
     prompt = ChatPromptTemplate.from_messages([

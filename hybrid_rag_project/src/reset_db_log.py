@@ -13,6 +13,7 @@ create_table_sql = """
         output_tokens INTEGER DEFAULT 0,
         total_cost DOUBLE PRECISION DEFAULT 0.0,
         latency DOUBLE PRECISION DEFAULT 0.0,
+        processed BOOLEAN DEFAULT FALSE,
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
 """
